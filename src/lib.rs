@@ -13,6 +13,7 @@ pub struct Cpu {
 
 enum Op {
     ADC(u8),
+    AND(u8),
 }
 
 enum Flag {
@@ -58,6 +59,13 @@ impl Cpu {
                 self.p[Flag::Zero] = unsigned_result == 0;
                 self.p[Flag::Carry] = has_carried;
 
+            },
+            Op::AND(x) => {
+                let unsigned_result = self.a & x;
+                let signed_result = unsigned_result as i8;
+                self.a = unsigned_result;
+                self.p[Flag::Zero] = unsigned_result == 0;
+                self.p[Flag::Negative] = signed_result < 0;
             }
         }
     }
@@ -256,6 +264,84 @@ mod tests {
         assert!(
             result == expected,
             "Zero flag not cleared correctly on non-zero sum. Result {}, Expected {}",
+            result,
+            expected
+        );
+    }
+
+    #[test]
+    fn op_and() {
+        let mut cpu = Cpu::new();
+        let (mut x, mut result, mut expected);
+
+        // correct answer
+        cpu.reset();
+        x = 0b00110101;
+        cpu.a = 0b11010011;
+        expected = 0b00010001;
+        cpu.execute(Op::AND(x));
+        result = cpu.a;
+        assert!(
+            result == expected,
+            "A register contains incorrect result. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // sets zero flag correctly
+        cpu.reset();
+        x = 0b01010101;
+        cpu.a = 0b10101010;
+        expected = 1;
+        cpu.execute(Op::AND(x));
+        result = cpu.p[Flag::Zero] as u8;
+        assert!(
+            result == expected,
+            "Zero flag not set correctly. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // clears zero flag correctly 
+        cpu.reset();
+        x = 0b01010101;
+        cpu.a = 0b10111010;
+        expected = 0;
+        cpu.p[Flag::Zero] = true;
+        cpu.execute(Op::AND(x));
+        result = cpu.p[Flag::Zero] as u8;
+        assert!(
+            result == expected,
+            "Zero flag not cleared correctly. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // sets negative flag correctly
+        cpu.reset();
+        x = 0b11010101;
+        cpu.a = 0b10101010;
+        expected = 1;
+        cpu.execute(Op::AND(x));
+        result = cpu.p[Flag::Negative] as u8;
+        assert!(
+            result == expected,
+            "Negative flag not set correctly. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // clears negative flag correctly 
+        cpu.reset();
+        x = 0b01010101;
+        cpu.a = 0b10111010;
+        expected = 0;
+        cpu.p[Flag::Negative] = true;
+        cpu.execute(Op::AND(x));
+        result = cpu.p[Flag::Negative] as u8;
+        assert!(
+            result == expected,
+            "Negative flag not cleared correctly. Expected {}, Result {}",
             result,
             expected
         );
