@@ -33,7 +33,7 @@ impl Cpu {
             x: 0,
             y: 0,
             s: 0,
-            p: [false; 7],
+            p: [false; 7], // N,V,B,D,I,Z,C
         }
     }
 
@@ -42,19 +42,21 @@ impl Cpu {
         self.a = 0;
         self.x = 0;
         self.y = 0;
-        self.p = [false; 7];
         self.s = 0;
+        self.p = [false; 7];
     }
 
     fn execute(&mut self, op: Op) {
         match op {
             Op::ADC(x) => {
                 let carry = self.p[Flag::Carry] as u8;
-                let (result, has_carried) = self.a.overflowing_add(x + carry);
-                let (_, has_overflowed) = (self.a as i8).overflowing_add_unsigned(x + carry);
-                self.a = result;
-                self.p[Flag::Carry] = has_carried;
+                let (unsigned_result, has_carried) = self.a.overflowing_add(x + carry);
+                let (signed_result, has_overflowed) = (self.a as i8).overflowing_add_unsigned(x + carry);
+                self.a = unsigned_result;
+                self.p[Flag::Negative] = signed_result < 0;
                 self.p[Flag::Overflow] = has_overflowed;
+                self.p[Flag::Zero] = unsigned_result == 0;
+                self.p[Flag::Carry] = has_carried;
 
             }
         }
@@ -197,6 +199,64 @@ mod tests {
             result == expected,
             "Overflow flag not cleared correctly on signed non overflowing op. Result {}, Expected {}", 
             result, 
+            expected
+        );
+
+        // sets negative flag correctly
+        cpu.reset();
+        x = 5;
+        cpu.a = 10u8.wrapping_neg(); 
+        expected = 1;
+        cpu.execute(Op::ADC(x));
+        result = cpu.p[Flag::Negative] as u8;
+        assert!(
+            result == expected,
+            "Negative flag not set correctly on negative sum. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // clears negative flag correctly
+        cpu.reset();
+        x = 12;
+        cpu.a = 10u8.wrapping_neg();
+        expected = 0;
+        cpu.p[Flag::Negative] = true;
+        cpu.execute(Op::ADC(x));
+        result = cpu.p[Flag::Negative] as u8;
+        assert!(
+            result == expected,
+            "Negative flag not cleared correctly on non-negative sum. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // sets zero flag correctly
+        cpu.reset();
+        x = 10;
+        cpu.a = 10u8.wrapping_neg(); 
+        expected = 1;
+        cpu.execute(Op::ADC(x));
+        result = cpu.p[Flag::Zero] as u8;
+        assert!(
+            result == expected,
+            "Zero flag not set correctly on zero sum. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // clears zero flag correctly
+        cpu.reset();
+        x = 12;
+        cpu.a = 6;
+        expected = 0;
+        cpu.p[Flag::Zero] = true;
+        cpu.execute(Op::ADC(x));
+        result = cpu.p[Flag::Zero] as u8;
+        assert!(
+            result == expected,
+            "Zero flag not cleared correctly on non-zero sum. Result {}, Expected {}",
+            result,
             expected
         );
     }
