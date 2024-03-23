@@ -27,6 +27,7 @@ enum Op {
     ASL(u16),
     BCC(u16),
     BCS(u16),
+    BEQ(u16),
 }
 
 enum Flag {
@@ -98,6 +99,11 @@ impl<T: Bus> Cpu<T> {
             },
             Op::BCS(x) => {
                 if self.p[Flag::Carry] {
+                    self.pc += x;
+                }
+            },
+            Op::BEQ(x) => {
+                if self.p[Flag::Zero] {
                     self.pc += x;
                 }
             }
@@ -576,6 +582,39 @@ mod tests {
         expected = cpu.pc;
         cpu.p[Flag::Carry] = false;
         cpu.execute(Op::BCS(x));
+        result = cpu.pc;
+        assert!(
+            result == expected,
+            "Incorrect PC value on non-branching. Expected {}, Result {}",
+            result,
+            expected
+        );
+    }
+    #[test]
+    fn op_beq() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let (mut x, mut result, mut expected);
+
+        // branches when zero flag set
+        cpu.reset();
+        x = 0x3102;
+        expected = cpu.pc + x;
+        cpu.p[Flag::Zero] = true;
+        cpu.execute(Op::BEQ(x));
+        result = cpu.pc;
+        assert!(
+            result == expected,
+            "Incorrect PC value on branching. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // does not branch when zero flag cleared
+        cpu.reset();
+        x = 0x1111;
+        expected = cpu.pc;
+        cpu.p[Flag::Zero] = false;
+        cpu.execute(Op::BEQ(x));
         result = cpu.pc;
         assert!(
             result == expected,
