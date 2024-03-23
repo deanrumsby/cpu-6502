@@ -1,19 +1,30 @@
 use std::ops::{Index, IndexMut};
 
-pub struct Bus {}
+#[derive(Debug)]
+pub struct BusReadError;
 
-pub struct Cpu {
+#[derive(Debug)]
+pub struct BusWriteError;
+
+pub trait Bus {
+    fn read(&self, addr: u16) -> Result<u8, BusReadError>;
+    fn write(&mut self, addr: u16, data: u8) -> Result<(), BusWriteError>;
+}
+
+pub struct Cpu<T: Bus> {
     pub pc: u16,
     pub a: u8,
     pub x: u8,
     pub y: u8,
     pub s: u8,
     pub p: [bool; 7],
+    bus: T,
 }
 
 enum Op {
     ADC(u8),
     AND(u8),
+    ASL(u16),
 }
 
 enum Flag {
@@ -26,8 +37,8 @@ enum Flag {
     Carry,
 }
 
-impl Cpu {
-    pub fn new() -> Self {
+impl<T: Bus> Cpu<T> {
+    pub fn new(bus: T) -> Self {
         Self {
             pc: 0,
             a: 0,
@@ -35,6 +46,7 @@ impl Cpu {
             y: 0,
             s: 0,
             p: [false; 7], // N,V,B,D,I,Z,C
+            bus,
         }
     }
 
@@ -66,6 +78,16 @@ impl Cpu {
                 self.a = unsigned_result;
                 self.p[Flag::Zero] = unsigned_result == 0;
                 self.p[Flag::Negative] = signed_result < 0;
+            },
+            Op::ASL(addr) => {
+                let byte = self.bus.read(addr).unwrap();
+                let first_bit = (byte & 0b10000000) >> 7;
+                let unsigned_result = byte << 1;
+                let signed_result = unsigned_result as i8;
+                self.bus.write(addr, unsigned_result).unwrap();
+                self.p[Flag::Carry] = first_bit != 0;
+                self.p[Flag::Zero] = unsigned_result == 0;
+                self.p[Flag::Negative] = signed_result < 0;
             }
         }
     }
@@ -90,9 +112,38 @@ impl IndexMut<Flag> for [bool; 7] {
 mod tests {
     use super::*;
 
+    struct TestBus {
+        pub ram: [u8; 5]
+    }
+
+    impl TestBus {
+        fn new() -> Self {
+            Self {
+                ram: [0; 5],
+            }
+        }
+    }
+
+    impl Bus for TestBus {
+        fn read(&self, addr: u16) -> Result<u8, BusReadError> {
+            if (addr as usize) < self.ram.len() {
+                return Ok(self.ram[addr as usize]);
+            }
+            Err(BusReadError{})
+        }
+
+        fn write(&mut self, addr: u16, data: u8) -> Result<(), BusWriteError> {
+            if (addr as usize) < self.ram.len() {
+                self.ram[addr as usize] = data;
+                return Ok(())
+            }
+            Err(BusWriteError{})
+        }
+    }
+
     #[test]
     fn op_adc() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::new(TestBus::new());
         let (mut x, mut result, mut expected);
 
         // no carry bit
@@ -271,7 +322,7 @@ mod tests {
 
     #[test]
     fn op_and() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::new(TestBus::new());
         let (mut x, mut result, mut expected);
 
         // correct answer
@@ -342,6 +393,114 @@ mod tests {
         assert!(
             result == expected,
             "Negative flag not cleared correctly. Expected {}, Result {}",
+            result,
+            expected
+        );
+    }
+
+    #[test]
+    fn op_asl() {
+        let bus = TestBus::new();
+        let mut cpu = Cpu::new(bus);
+        let (mut addr, mut result, mut expected);
+
+        // shifts correctly
+        cpu.reset();
+        addr = 2u16;
+        cpu.bus.ram[addr as usize] = 2;
+        expected = 0b00000100;
+        cpu.execute(Op::ASL(addr));
+        result = cpu.bus.read(addr).unwrap();
+        assert!(
+            result == expected,
+            "Incorrect value in memory. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // sets carry correctly
+        cpu.reset();
+        addr = 3u16;
+        cpu.bus.ram[addr as usize] = 0b10001000;
+        expected = 1;
+        cpu.execute(Op::ASL(addr));
+        result = cpu.p[Flag::Carry] as u8;
+        assert!(
+            result == expected,
+            "Carry flag set incorrectly. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // clears carry correctly
+        cpu.reset();
+        addr = 1u16;
+        cpu.bus.ram[addr as usize] = 0b01001111;
+        expected = 0;
+        cpu.p[Flag::Carry] = true;
+        cpu.execute(Op::ASL(addr));
+        result = cpu.p[Flag::Carry] as u8;
+        assert!(
+            result == expected,
+            "Carry flag cleared incorrectly. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // sets zero flag correctly
+        cpu.reset();
+        addr = 4u16;
+        cpu.bus.ram[addr as usize] = 0b10000000;
+        expected = 1;
+        cpu.execute(Op::ASL(addr));
+        result = cpu.p[Flag::Zero] as u8;
+        assert!(
+            result == expected,
+            "Zero flag set incorrectly. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // clears zero flag correctly
+        cpu.reset();
+        addr = 4u16;
+        cpu.bus.ram[addr as usize] = 0b01001111;
+        expected = 0;
+        cpu.p[Flag::Zero] = true;
+        cpu.execute(Op::ASL(addr));
+        result = cpu.p[Flag::Zero] as u8;
+        assert!(
+            result == expected,
+            "Zero flag cleared incorrectly. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // sets negative flag correctly
+        cpu.reset();
+        addr = 4u16;
+        cpu.bus.ram[addr as usize] = 0b01000001;
+        expected = 1;
+        cpu.execute(Op::ASL(addr));
+        result = cpu.p[Flag::Negative] as u8;
+        assert!(
+            result == expected,
+            "Negative flag set incorrectly. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // clears negative flag correctly
+        cpu.reset();
+        addr = 4u16;
+        cpu.bus.ram[addr as usize] = 0b00001111;
+        expected = 0;
+        cpu.p[Flag::Negative] = true;
+        cpu.execute(Op::ASL(addr));
+        result = cpu.p[Flag::Negative] as u8;
+        assert!(
+            result == expected,
+            "Zero flag cleared incorrectly. Expected {}, Result {}",
             result,
             expected
         );
