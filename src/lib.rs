@@ -28,6 +28,7 @@ enum Op {
     BCC(u16),
     BCS(u16),
     BEQ(u16),
+    BIT(u16),
 }
 
 enum Flag {
@@ -84,11 +85,11 @@ impl<T: Bus> Cpu<T> {
             },
             Op::ASL(addr) => {
                 let byte = self.bus.read(addr).unwrap();
-                let first_bit = (byte & 0b10000000) >> 7;
+                let bit_seven = (byte & 0b10000000) >> 7;
                 let unsigned_result = byte << 1;
                 let signed_result = unsigned_result as i8;
                 self.bus.write(addr, unsigned_result).unwrap();
-                self.p[Flag::Carry] = first_bit != 0;
+                self.p[Flag::Carry] = bit_seven != 0;
                 self.p[Flag::Zero] = unsigned_result == 0;
                 self.p[Flag::Negative] = signed_result < 0;
             },
@@ -106,7 +107,15 @@ impl<T: Bus> Cpu<T> {
                 if self.p[Flag::Zero] {
                     self.pc += x;
                 }
-            }
+            },
+            Op::BIT(addr) => {
+                let byte = self.bus.read(addr).unwrap();
+                let bit_seven = (byte & 0b10000000) >> 7;
+                let bit_six = (byte & 0b01000000) >> 6;
+                self.p[Flag::Zero] = (self.a & byte) == 0;
+                self.p[Flag::Negative] = bit_seven != 0;
+                self.p[Flag::Overflow] = bit_six != 0;
+            },
         }
     }
 }
@@ -418,8 +427,7 @@ mod tests {
 
     #[test]
     fn op_asl() {
-        let bus = TestBus::new();
-        let mut cpu = Cpu::new(bus);
+        let mut cpu = Cpu::new(TestBus::new());
         let (mut addr, mut result, mut expected);
 
         // shifts correctly
@@ -619,6 +627,108 @@ mod tests {
         assert!(
             result == expected,
             "Incorrect PC value on non-branching. Expected {}, Result {}",
+            result,
+            expected
+        );
+    }
+
+    #[test]
+    fn op_bit() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let (mut addr, mut result, mut expected);
+
+        // sets zero flag correctly
+        cpu.reset();
+        addr = 2u16;
+        cpu.a = 0b11001100;
+        cpu.bus.ram[addr as usize] = 0b00110011;
+        cpu.p[Flag::Zero] = false;
+        expected = true;
+        cpu.execute(Op::BIT(addr));
+        result = cpu.p[Flag::Zero];
+        assert!(
+            result == expected,
+            "Incorrect setting of zero flag. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // clears zero flag correctly
+        cpu.reset();
+        addr = 3u16;
+        cpu.a = 0b11011100;
+        cpu.bus.ram[addr as usize] = 0b00111111;
+        cpu.p[Flag::Zero] = true;
+        expected = false;
+        cpu.execute(Op::BIT(addr));
+        result = cpu.p[Flag::Zero];
+        assert!(
+            result == expected,
+            "Incorrect clearing of zero flag. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // sets negative flag correctly
+        cpu.reset();
+        addr = 1u16;
+        cpu.a = 0b01010000;
+        cpu.bus.ram[addr as usize] = 0b10110011;
+        cpu.p[Flag::Negative] = false;
+        expected = true;
+        cpu.execute(Op::BIT(addr));
+        result = cpu.p[Flag::Negative];
+        assert!(
+            result == expected,
+            "Incorrect setting of negative flag. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // clears negative flag correctly
+        cpu.reset();
+        addr = 3u16;
+        cpu.a = 0b11011100;
+        cpu.bus.ram[addr as usize] = 0b01111111;
+        cpu.p[Flag::Negative] = true;
+        expected = false;
+        cpu.execute(Op::BIT(addr));
+        result = cpu.p[Flag::Negative];
+        assert!(
+            result == expected,
+            "Incorrect clearing of negative flag. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // sets overflow flag correctly
+        cpu.reset();
+        addr = 0u16;
+        cpu.a = 0b01010000;
+        cpu.bus.ram[addr as usize] = 0b01010011;
+        cpu.p[Flag::Overflow] = false;
+        expected = true;
+        cpu.execute(Op::BIT(addr));
+        result = cpu.p[Flag::Overflow];
+        assert!(
+            result == expected,
+            "Incorrect setting of overflow flag. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // clears overflow flag correctly
+        cpu.reset();
+        addr = 3u16;
+        cpu.a = 0b11011100;
+        cpu.bus.ram[addr as usize] = 0b10111111;
+        cpu.p[Flag::Overflow] = true;
+        expected = false;
+        cpu.execute(Op::BIT(addr));
+        result = cpu.p[Flag::Overflow];
+        assert!(
+            result == expected,
+            "Incorrect clearing of overflow flag. Expected {}, Result {}",
             result,
             expected
         );
