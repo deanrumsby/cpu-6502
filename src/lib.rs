@@ -29,6 +29,7 @@ enum Op {
     BCS(u16),
     BEQ(u16),
     BIT(u16),
+    BMI(u16),
 }
 
 enum Flag {
@@ -115,6 +116,11 @@ impl<T: Bus> Cpu<T> {
                 self.p[Flag::Zero] = (self.a & byte) == 0;
                 self.p[Flag::Negative] = bit_seven != 0;
                 self.p[Flag::Overflow] = bit_six != 0;
+            },
+            Op::BMI(x) => {
+                if self.p[Flag::Negative] {
+                    self.pc += x;
+                }
             },
         }
     }
@@ -729,6 +735,40 @@ mod tests {
         assert!(
             result == expected,
             "Incorrect clearing of overflow flag. Expected {}, Result {}",
+            result,
+            expected
+        );
+    }
+
+    #[test]
+    fn op_bmi() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let (mut x, mut result, mut expected);
+
+        // branches when negative flag set
+        cpu.reset();
+        x = 0x3456;
+        expected = cpu.pc + x;
+        cpu.p[Flag::Negative] = true;
+        cpu.execute(Op::BMI(x));
+        result = cpu.pc;
+        assert!(
+            result == expected,
+            "Incorrect PC value on branching. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // does not branch when negative flag clear
+        cpu.reset();
+        x = 0x2238;
+        expected = cpu.pc;
+        cpu.p[Flag::Negative] = false;
+        cpu.execute(Op::BMI(x));
+        result = cpu.pc;
+        assert!(
+            result == expected,
+            "Incorrect PC value on non-branching. Expected {}, Result {}",
             result,
             expected
         );
