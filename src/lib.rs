@@ -1,4 +1,5 @@
 use std::ops::{Index, IndexMut};
+use std::convert::From;
 
 #[derive(Debug)]
 pub struct BusReadError;
@@ -11,13 +12,17 @@ pub trait Bus {
     fn write(&mut self, addr: u16, data: u8) -> Result<(), BusWriteError>;
 }
 
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct Flags([bool; 7]);
+
 pub struct Cpu<T: Bus> {
     pub pc: u16,
     pub a: u8,
     pub x: u8,
     pub y: u8,
     pub s: u8,
-    pub p: [bool; 7],
+    pub p: Flags,
+    pub stack: [u8; 256],
     bus: T,
 }
 
@@ -32,6 +37,7 @@ enum Op {
     BMI(u16),
     BNE(u16),
     BPL(u16),
+    BRK,
 }
 
 enum Flag {
@@ -52,7 +58,8 @@ impl<T: Bus> Cpu<T> {
             x: 0,
             y: 0,
             s: 0,
-            p: [false; 7], // N,V,B,D,I,Z,C
+            p: Flags([false; 7]), // N,V,B,D,I,Z,C
+            stack: [0; 256],
             bus,
         }
     }
@@ -63,8 +70,9 @@ impl<T: Bus> Cpu<T> {
         self.x = 0;
         self.y = 0;
         self.s = 0;
-        self.p = [false; 7];
+        self.p = Flags([false; 7]);
     }
+
 
     fn execute(&mut self, op: Op) {
         match op {
@@ -134,24 +142,57 @@ impl<T: Bus> Cpu<T> {
                     self.pc += x;
                 }
             },
+            Op::BRK => {
+                let base = self.s as usize;
+                self.stack[base..base + 2].copy_from_slice(&self.pc.to_le_bytes());
+                self.stack[base + 2] = u8::from(self.p);
+                self.s += 3;
+            },
+                
+
         }
     }
 }
 
-impl Index<Flag> for [bool; 7] {
+impl Index<Flag> for Flags {
     type Output = bool;
 
     fn index(&self, flag: Flag) -> &Self::Output {
-        &self[flag as usize]
+        &self.0[flag as usize]
     }
 }
 
-impl IndexMut<Flag> for [bool; 7] {
+impl IndexMut<Flag> for Flags {
     fn index_mut(&mut self, flag: Flag) -> &mut Self::Output {
-        &mut self[flag as usize]
+        &mut self.0[flag as usize]
     }
 }
 
+impl From<Flags> for u8 {
+    fn from(value: Flags) -> u8 {
+        value.0.iter().enumerate().fold(0, |acc, (i, val)| {
+            if i == 1 {
+                2 * (acc * 2 + (*val as u8)) + 1
+            } else {
+                acc * 2 + (*val as u8)
+            }
+        })
+    }
+}
+
+impl From<u8> for Flags {
+    fn from(mut value: u8) -> Flags {
+        let mut res = [false; 7];
+        for (i, val) in res.iter_mut().rev().enumerate() {
+            if i == 5 {
+                value >>= 1;
+            }
+            *val = (value % 2) != 0;
+            value >>= 1;
+        }
+        Flags(res)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -184,6 +225,64 @@ mod tests {
             }
             Err(BusWriteError{})
         }
+    }
+
+    #[test]
+    fn flags_to_u8() {
+        let (mut result, mut expected);
+        expected = 0b00100000;
+        result = u8::from(Flags([false; 7]));
+        assert!(
+            result == expected,
+            "Result {:b}, Expected {:b}",
+            result,
+            expected
+        );
+        expected = 0b11111111;
+        result = u8::from(Flags([true; 7]));
+        assert!(
+            result == expected,
+            "Result {:b}, Expected {:b}",
+            result,
+            expected
+        );
+        expected = 0b10111001;
+        result = u8::from(Flags([true, false, true, true, false, false, true]));
+        assert!(
+            result == expected,
+            "Result {:b}, Expected {:b}",
+            result,
+            expected
+        );
+    }
+
+    #[test]
+    fn u8_to_flags() {
+        let (mut result, mut expected);
+        expected = Flags([false; 7]);
+        result = Flags::from(0b00100000);
+        assert!(
+            result == expected,
+            "Result {:?}, Expected {:?}",
+            result,
+            expected
+        );
+        expected = Flags([true; 7]);
+        result = Flags::from(0b11111111);
+        assert!(
+            result == expected,
+            "Result {:?}, Expected {:?}",
+            result,
+            expected
+        );
+        expected = Flags([false, true, true, true, false, true, false]);
+        result = Flags::from(0b01111010);
+        assert!(
+            result == expected,
+            "Result {:?}, Expected {:?}",
+            result,
+            expected
+        );
     }
 
     #[test]
@@ -849,6 +948,53 @@ mod tests {
         assert!(
             result == expected,
             "Incorrect PC value on non-branching. Expected {}, Result {}",
+            result,
+            expected
+        );
+    }
+
+    #[test]
+    fn op_brk() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let (mut result, mut expected);
+        
+        // stack pointer increments correctly
+        expected = 3;
+        cpu.execute(Op::BRK);
+        result = cpu.s;
+        assert!(
+            result == expected,
+            "Stack pointer incorrect. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // stack contains correct values
+        cpu.reset();
+        cpu.pc = 0x2345;
+        cpu.p = Flags([false, false, true, true, false, true, false]);
+        cpu.execute(Op::BRK);
+        expected = 0x45;
+        result = cpu.stack[0];
+        assert!(
+            result == expected,
+            "First byte incorrect. Result {}, Expected {}",
+            result, 
+            expected
+        );
+        expected = 0x23;
+        result = cpu.stack[1];
+        assert!(
+            result == expected,
+            "Second byte incorrect. Result {}, Expected {}",
+            result,
+            expected
+        );
+        expected = 0b00111010;
+        result = cpu.stack[2];
+        assert!(
+            result == expected,
+            "Third byte incorrect. Result {}, Expected {}",
             result,
             expected
         );
