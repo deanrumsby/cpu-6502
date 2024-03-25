@@ -39,6 +39,7 @@ enum Op {
     BPL(u16),
     BRK,
     BVC(u16),
+    BVS(u16),
 }
 
 enum Flag {
@@ -151,6 +152,11 @@ impl<T: Bus> Cpu<T> {
             },
             Op::BVC(x) => {
                 if !self.p[Flag::Overflow] {
+                    self.pc += x;
+                }
+            },
+            Op::BVS(x) => {
+                if self.p[Flag::Overflow] {
                     self.pc += x;
                 }
             },
@@ -1028,6 +1034,39 @@ mod tests {
         expected = cpu.pc;
         cpu.p[Flag::Overflow] = true;
         cpu.execute(Op::BVC(x));
+        result = cpu.pc;
+        assert!(
+            result == expected,
+            "Incorrect PC value on non-branching. Expected {}, Result {}",
+            result,
+            expected
+        );
+    }
+    #[test]
+    fn op_bvs() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let (mut x, mut result, mut expected);
+
+        // branches when overflow set
+        cpu.reset();
+        x = 0x1155;
+        expected = cpu.pc + x;
+        cpu.p[Flag::Overflow] = true;
+        cpu.execute(Op::BVS(x));
+        result = cpu.pc;
+        assert!(
+            result == expected,
+            "Incorrect PC value on branching. Expected {}, Result {}",
+            result,
+            expected
+        );
+
+        // does not branch when overflow cleared
+        cpu.reset();
+        x = 0x1122;
+        expected = cpu.pc;
+        cpu.p[Flag::Overflow] = false;
+        cpu.execute(Op::BVS(x));
         result = cpu.pc;
         assert!(
             result == expected,
