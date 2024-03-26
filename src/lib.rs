@@ -46,6 +46,7 @@ enum Op {
     CLV,
     CMP(u8),
     CPX(u8),
+    CPY(u8),
 }
 
 enum Flag {
@@ -190,7 +191,12 @@ impl<T: Bus> Cpu<T> {
                 self.p[Flag::Zero] = self.x == x;
                 self.p[Flag::Negative] = (result as i8) < 0;
             },
-
+            Op::CPY(x) => {
+                let (result, _) = self.y.overflowing_sub(x);
+                self.p[Flag::Carry] = self.y >= x;
+                self.p[Flag::Zero] = self.y == x;
+                self.p[Flag::Negative] = (result as i8) < 0;
+            },
         }
     }
 }
@@ -1347,6 +1353,100 @@ mod tests {
         cpu.p[Flag::Negative] = true;
         expected = false;
         cpu.execute(Op::CPX(x));
+        result = cpu.p[Flag::Negative];
+        assert!(
+            result == expected,
+            "Negative flag cleared incorrectly. Result {}, Expected {}",
+            result,
+            expected
+        );
+    }
+    #[test]
+    fn op_cpy() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let (mut x, mut result, mut expected);
+
+        // sets carry flag correctly
+        cpu.reset();
+        cpu.y = 0xff;
+        x = 0x23;
+        expected = true;
+        cpu.execute(Op::CPY(x));
+        result = cpu.p[Flag::Carry];
+        assert!(
+            result == expected,
+            "Carry flag set incorrectly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // clears carry flag correctly
+        cpu.reset();
+        cpu.y = 0x21;
+        x = 0xff;
+        cpu.p[Flag::Carry] = true;
+        expected = false;
+        cpu.execute(Op::CPY(x));
+        result = cpu.p[Flag::Carry];
+        assert!(
+            result == expected,
+            "Carry flag cleared incorrectly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // sets zero flag correctly
+        cpu.reset();
+        cpu.y = 0xa2;
+        x = 0xa2;
+        cpu.p[Flag::Zero] = false;
+        expected = true;
+        cpu.execute(Op::CPY(x));
+        result = cpu.p[Flag::Carry];
+        assert!(
+            result == expected,
+            "Zero flag set incorrectly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // clears zero flag correctly
+        cpu.reset();
+        cpu.y = 0x02;
+        x = 0x59;
+        cpu.p[Flag::Zero] = true;
+        expected = false;
+        cpu.execute(Op::CPY(x));
+        result = cpu.p[Flag::Zero];
+        assert!(
+            result == expected,
+            "Zero flag cleared incorrectly. Result {}, Expected {}",
+            result,
+            expected
+        );
+        
+        // sets negative flag correctly
+        cpu.reset();
+        cpu.y = 0xf2;
+        x = 0x1a;
+        cpu.p[Flag::Negative] = false;
+        expected = true;
+        cpu.execute(Op::CPY(x));
+        result = cpu.p[Flag::Negative];
+        assert!(
+            result == expected,
+            "Negative flag set incorrectly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // clears negative flag correctly
+        cpu.reset();
+        cpu.y = 0x4f;
+        x = 0x05;
+        cpu.p[Flag::Negative] = true;
+        expected = false;
+        cpu.execute(Op::CPY(x));
         result = cpu.p[Flag::Negative];
         assert!(
             result == expected,
