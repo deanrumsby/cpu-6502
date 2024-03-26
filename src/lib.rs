@@ -40,6 +40,7 @@ enum Op {
     BRK,
     BVC(u16),
     BVS(u16),
+    CLC,
 }
 
 enum Flag {
@@ -159,6 +160,9 @@ impl<T: Bus> Cpu<T> {
                 if self.p[Flag::Overflow] {
                     self.pc += x;
                 }
+            },
+            Op::CLC => {
+                self.p[Flag::Carry] = false;
             },
         }
     }
@@ -1071,6 +1075,22 @@ mod tests {
         assert!(
             result == expected,
             "Incorrect PC value on non-branching. Expected {}, Result {}",
+            result,
+            expected
+        );
+    }
+
+    #[test]
+    fn op_clc() {
+        let mut cpu = Cpu::new(TestBus::new());
+
+        let expected = false;
+        cpu.p[Flag::Carry] = true;
+        cpu.execute(Op::CLC);
+        let result = cpu.p[Flag::Carry];
+        assert!(
+            result == expected,
+            "Carry not cleared correctly. Result {}, Expected {}",
             result,
             expected
         );
