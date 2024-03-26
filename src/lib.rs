@@ -42,6 +42,7 @@ enum Op {
     BVS(u16),
     CLC,
     CLD,
+    CLI,
 }
 
 enum Flag {
@@ -167,6 +168,9 @@ impl<T: Bus> Cpu<T> {
             },
             Op::CLD => {
                 self.p[Flag::Decimal] = false;
+            },
+            Op::CLI => {
+                self.p[Flag::InterruptDisable] = false;
             },
         }
     }
@@ -1110,6 +1114,21 @@ mod tests {
         assert!(
             result == expected,
             "Decimal flag not cleared correctly. Result {}, Expected {}",
+            result,
+            expected
+        );
+    }
+    #[test]
+    fn op_cli() {
+        let mut cpu = Cpu::new(TestBus::new());
+
+        let expected = false;
+        cpu.p[Flag::InterruptDisable] = true;
+        cpu.execute(Op::CLI);
+        let result = cpu.p[Flag::InterruptDisable];
+        assert!(
+            result == expected,
+            "Interrupt disable flag not cleared correctly. Result {}, Expected {}",
             result,
             expected
         );
