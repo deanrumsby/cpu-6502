@@ -209,7 +209,10 @@ impl<T: Bus> Cpu<T> {
             },
             Op::DEC(addr) => {
                 let byte = self.bus.read(addr).unwrap();
-                let result = byte - 1;
+                let result = byte.wrapping_sub(1);
+                self.bus.write(addr, result).unwrap();
+                self.p[Flag::Zero] = result == 0;
+                self.p[Flag::Negative] = (result as i8) < 0;
             },
         }
     }
@@ -1512,6 +1515,89 @@ mod tests {
         assert!(
             result == expected,
             "Negative flag cleared incorrectly. Result {}, Expected {}",
+            result,
+            expected
+        );
+    }
+
+    #[test]
+    fn op_dec() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let (mut x, mut addr, mut result, mut expected);
+
+        // value correct
+        cpu.reset();
+        addr = 2;
+        x = 0x43;
+        cpu.bus.ram[addr as usize] = x;
+        expected = x - 1;
+        cpu.execute(Op::DEC(addr));
+        result = cpu.bus.ram[addr as usize];
+        assert!(
+            result == expected,
+            "Value incorrect. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // zero flag set correctly
+        cpu.reset();
+        addr = 3;
+        x = 0x1;
+        cpu.bus.ram[addr as usize] = x;
+        expected = true as u8;
+        cpu.execute(Op::DEC(addr));
+        result = cpu.p[Flag::Zero] as u8;
+        assert!(
+            result == expected,
+            "Zero flag not set correctly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // zero flag cleared correctly
+        cpu.reset();
+        addr = 3;
+        x = 0x5;
+        cpu.bus.ram[addr as usize] = x;
+        expected = false as u8;
+        cpu.p[Flag::Zero] = true;
+        cpu.execute(Op::DEC(addr));
+        result = cpu.p[Flag::Zero] as u8;
+        assert!(
+            result == expected,
+            "Zero flag not cleared correctly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // negative flag set correctly
+        cpu.reset();
+        addr = 1;
+        x = 0;
+        cpu.bus.ram[addr as usize] = x;
+        expected = true as u8;
+        cpu.execute(Op::DEC(addr));
+        result = cpu.p[Flag::Negative] as u8;
+        assert!(
+            result == expected,
+            "Negative flag not set correctly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // negative flag cleared correctly
+        cpu.reset();
+        addr = 3;
+        x = 0x32;
+        cpu.bus.ram[addr as usize] = x;
+        expected = false as u8;
+        cpu.p[Flag::Negative] = true;
+        cpu.execute(Op::DEC(addr));
+        result = cpu.p[Flag::Negative] as u8;
+        assert!(
+            result == expected,
+            "Negative flag not cleared correctly. Result {}, Expected {}",
             result,
             expected
         );
