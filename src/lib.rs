@@ -47,6 +47,7 @@ enum Op {
     CMP(u8),
     CPX(u8),
     CPY(u8),
+    DEC(u16),
 }
 
 enum Flag {
@@ -66,7 +67,7 @@ impl<T: Bus> Cpu<T> {
             a: 0,
             x: 0,
             y: 0,
-            s: 0,
+            s: 0xff,
             p: Flags([false; 7]), // N,V,B,D,I,Z,C
             stack: [0; 256],
             bus,
@@ -78,10 +79,19 @@ impl<T: Bus> Cpu<T> {
         self.a = 0;
         self.x = 0;
         self.y = 0;
-        self.s = 0;
+        self.s = 0xff;
         self.p = Flags([false; 7]);
     }
 
+    fn stack_push(&mut self, byte: u8) {
+        self.stack[self.s as usize] = byte;
+        self.s = self.s.wrapping_sub(1);
+    }
+
+    fn stack_pop(&mut self) -> u8 {
+        self.s = self.s.wrapping_add(1);
+        self.stack[self.s as usize]
+    }
 
     fn execute(&mut self, op: Op) {
         match op {
@@ -115,17 +125,17 @@ impl<T: Bus> Cpu<T> {
             },
             Op::BCC(x) => {
                 if !self.p[Flag::Carry] {
-                    self.pc += x;
+                    self.pc = self.pc.wrapping_add(x);
                 }
             },
             Op::BCS(x) => {
                 if self.p[Flag::Carry] {
-                    self.pc += x;
+                    self.pc = self.pc.wrapping_add(x);
                 }
             },
             Op::BEQ(x) => {
                 if self.p[Flag::Zero] {
-                    self.pc += x;
+                    self.pc = self.pc.wrapping_add(x);
                 }
             },
             Op::BIT(addr) => {
@@ -138,24 +148,24 @@ impl<T: Bus> Cpu<T> {
             },
             Op::BMI(x) => {
                 if self.p[Flag::Negative] {
-                    self.pc += x;
+                    self.pc = self.pc.wrapping_add(x);
                 }
             },
             Op::BNE(x) => {
                 if !self.p[Flag::Zero] {
-                    self.pc += x;
+                    self.pc = self.pc.wrapping_add(x);
                 }
             },
             Op::BPL(x) => {
                 if !self.p[Flag::Negative] {
-                    self.pc += x;
+                    self.pc = self.pc.wrapping_add(x);
                 }
             },
             Op::BRK => {
-                let base = self.s as usize;
-                self.stack[base..base + 2].copy_from_slice(&self.pc.to_le_bytes());
-                self.stack[base + 2] = u8::from(self.p);
-                self.s += 3;
+                let pc = self.pc.to_le_bytes();
+                self.stack_push(pc[0]);
+                self.stack_push(pc[1]);
+                self.stack_push(u8::from(self.p));
             },
             Op::BVC(x) => {
                 if !self.p[Flag::Overflow] {
@@ -196,6 +206,10 @@ impl<T: Bus> Cpu<T> {
                 self.p[Flag::Carry] = self.y >= x;
                 self.p[Flag::Zero] = self.y == x;
                 self.p[Flag::Negative] = (result as i8) < 0;
+            },
+            Op::DEC(addr) => {
+                let byte = self.bus.read(addr).unwrap();
+                let result = byte - 1;
             },
         }
     }
@@ -327,6 +341,64 @@ mod tests {
         assert!(
             result == expected,
             "Result {:?}, Expected {:?}",
+            result,
+            expected
+        );
+    }
+
+    #[test]
+    fn stack_push() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let (mut x, mut result, mut expected);
+
+        // correctly adjusts stack pointer
+        cpu.reset();
+        expected = 0xfe;
+        x = 0x23;
+        cpu.stack_push(x);
+        result = cpu.s;
+        assert!(
+            result == expected,
+            "S not adjusted correctly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // stack values pushed correctly 
+        cpu.reset();
+        x = 0x23;
+        expected = x;
+        cpu.stack_push(x);
+        result = cpu.stack[0xff];
+        assert!(
+            result == expected,
+            "First byte of stack is wrong. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // stack pointer overflows as expected
+        cpu.reset();
+        expected = 0;
+        cpu.stack_pop();
+        result = cpu.s;
+        assert!(
+            result == expected,
+            "S does not overflow as expected. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // stack pointer underflows as expected
+        cpu.reset();
+        cpu.s = 0;
+        x = 0x23;
+        cpu.stack_push(x);
+        expected = 0xff;
+        result = cpu.s;
+        assert!(
+            result == expected,
+            "S does not underflow as expected. Result {}, Expected {}",
             result,
             expected
         );
@@ -1005,24 +1077,13 @@ mod tests {
         let mut cpu = Cpu::new(TestBus::new());
         let (mut result, mut expected);
         
-        // stack pointer increments correctly
-        expected = 3;
-        cpu.execute(Op::BRK);
-        result = cpu.s;
-        assert!(
-            result == expected,
-            "Stack pointer incorrect. Result {}, Expected {}",
-            result,
-            expected
-        );
-
         // stack contains correct values
         cpu.reset();
         cpu.pc = 0x2345;
         cpu.p = Flags([false, false, true, true, false, true, false]);
         cpu.execute(Op::BRK);
         expected = 0x45;
-        result = cpu.stack[0];
+        result = cpu.stack[0xff];
         assert!(
             result == expected,
             "First byte incorrect. Result {}, Expected {}",
@@ -1030,7 +1091,7 @@ mod tests {
             expected
         );
         expected = 0x23;
-        result = cpu.stack[1];
+        result = cpu.stack[0xfe];
         assert!(
             result == expected,
             "Second byte incorrect. Result {}, Expected {}",
@@ -1038,7 +1099,7 @@ mod tests {
             expected
         );
         expected = 0b00111010;
-        result = cpu.stack[2];
+        result = cpu.stack[0xfd];
         assert!(
             result == expected,
             "Third byte incorrect. Result {}, Expected {}",
