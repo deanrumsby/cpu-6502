@@ -43,6 +43,7 @@ enum Op {
     CLC,
     CLD,
     CLI,
+    CLV,
 }
 
 enum Flag {
@@ -171,6 +172,9 @@ impl<T: Bus> Cpu<T> {
             },
             Op::CLI => {
                 self.p[Flag::InterruptDisable] = false;
+            },
+            Op::CLV => {
+                self.p[Flag::Overflow] = false;
             },
         }
     }
@@ -1129,6 +1133,21 @@ mod tests {
         assert!(
             result == expected,
             "Interrupt disable flag not cleared correctly. Result {}, Expected {}",
+            result,
+            expected
+        );
+    }
+    #[test]
+    fn op_clv() {
+        let mut cpu = Cpu::new(TestBus::new());
+
+        let expected = false;
+        cpu.p[Flag::Overflow] = true;
+        cpu.execute(Op::CLV);
+        let result = cpu.p[Flag::Overflow];
+        assert!(
+            result == expected,
+            "Overflow flag not cleared correctly. Result {}, Expected {}",
             result,
             expected
         );
