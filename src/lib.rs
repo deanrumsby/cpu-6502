@@ -41,6 +41,7 @@ enum Op {
     BVC(u16),
     BVS(u16),
     CLC,
+    CLD,
 }
 
 enum Flag {
@@ -163,6 +164,9 @@ impl<T: Bus> Cpu<T> {
             },
             Op::CLC => {
                 self.p[Flag::Carry] = false;
+            },
+            Op::CLD => {
+                self.p[Flag::Decimal] = false;
             },
         }
     }
@@ -1091,6 +1095,21 @@ mod tests {
         assert!(
             result == expected,
             "Carry not cleared correctly. Result {}, Expected {}",
+            result,
+            expected
+        );
+    }
+    #[test]
+    fn op_cld() {
+        let mut cpu = Cpu::new(TestBus::new());
+
+        let expected = false;
+        cpu.p[Flag::Decimal] = true;
+        cpu.execute(Op::CLD);
+        let result = cpu.p[Flag::Decimal];
+        assert!(
+            result == expected,
+            "Decimal flag not cleared correctly. Result {}, Expected {}",
             result,
             expected
         );
