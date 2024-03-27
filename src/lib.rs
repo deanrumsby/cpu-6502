@@ -50,6 +50,7 @@ enum Op {
     DEC(u16),
     DEX,
     DEY,
+    EOR(u8),
 }
 
 enum Flag {
@@ -225,6 +226,11 @@ impl<T: Bus> Cpu<T> {
                 self.y = self.y.wrapping_sub(1);
                 self.p[Flag::Zero] = self.y == 0;
                 self.p[Flag::Negative] = (self.y as i8) < 0;
+            },
+            Op::EOR(x) => {
+                self.a ^= x;
+                self.p[Flag::Zero] = self.a == 0;
+                self.p[Flag::Negative] = (self.a as i8) < 0;
             },
         }
     }
@@ -1754,6 +1760,85 @@ mod tests {
         assert!(
             result == expected,
             "Negative flag not cleared correctly. Result {}, Expected {}",
+            result,
+            expected
+        );
+    }
+    #[test]
+    fn op_eor() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let (mut x, mut result, mut expected);
+
+        // correct value
+        cpu.reset();
+        x = 0b11011010;
+        cpu.a = 0b01011101;
+        expected = 0b10000111;
+        cpu.execute(Op::EOR(x));
+        result = cpu.a;
+        assert!(
+            result == expected,
+            "Incorrect value in A. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // zero flag set correctly
+        cpu.reset();
+        x = 0b10101010;
+        cpu.a = 0b10101010;
+        expected = true as u8;
+        cpu.p[Flag::Zero] = false;
+        cpu.execute(Op::EOR(x));
+        result = cpu.p[Flag::Zero] as u8;
+        assert!(
+            result == expected,
+            "Zero flag set incorrectly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // zero flag cleared correctly
+        cpu.reset();
+        x = 0b10101010;
+        cpu.a = 0b11111111;
+        expected = false as u8;
+        cpu.p[Flag::Zero] = true;
+        cpu.execute(Op::EOR(x));
+        result = cpu.p[Flag::Zero] as u8;
+        assert!(
+            result == expected,
+            "Zero flag cleared incorrectly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // negative flag set correctly
+        cpu.reset();
+        x = 0b10101010;
+        cpu.a = 0b00101010;
+        expected = true as u8;
+        cpu.p[Flag::Negative] = false;
+        cpu.execute(Op::EOR(x));
+        result = cpu.p[Flag::Negative] as u8;
+        assert!(
+            result == expected,
+            "Negative flag set incorrectly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // negative flag cleared correctly
+        cpu.reset();
+        x = 0b10101010;
+        cpu.a = 0b11111111;
+        expected = false as u8;
+        cpu.p[Flag::Negative] = true;
+        cpu.execute(Op::EOR(x));
+        result = cpu.p[Flag::Negative] as u8;
+        assert!(
+            result == expected,
+            "Zero flag cleared incorrectly. Result {}, Expected {}",
             result,
             expected
         );
