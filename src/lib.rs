@@ -54,6 +54,7 @@ enum Op {
     INC(u16),
     INX,
     INY,
+    JMP(u16),
 }
 
 enum Flag {
@@ -251,6 +252,9 @@ impl<T: Bus> Cpu<T> {
                 self.y = self.y.wrapping_add(1);
                 self.p[Flag::Zero] = self.y == 0;
                 self.p[Flag::Negative] = (self.y as i8) < 0;
+            },
+            Op::JMP(addr) => {
+                self.pc = addr;
             },
         }
     }
@@ -2085,6 +2089,25 @@ mod tests {
         assert!(
             result == expected,
             "Negative flag not cleared correctly. Result {}, Expected {}",
+            result,
+            expected
+        );
+    }
+    #[test]
+    fn op_jmp() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let (addr, result, expected);
+
+        // correct value
+        cpu.reset();
+        addr = 0x3245;
+        cpu.pc = 0x1234;
+        expected = addr;
+        cpu.execute(Op::JMP(addr));
+        result = cpu.pc;
+        assert!(
+            result == expected,
+            "Incorrect PC value. Result {}, Expected {}",
             result,
             expected
         );
