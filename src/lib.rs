@@ -51,6 +51,7 @@ enum Op {
     DEX,
     DEY,
     EOR(u8),
+    INC(u16),
 }
 
 enum Flag {
@@ -231,6 +232,13 @@ impl<T: Bus> Cpu<T> {
                 self.a ^= x;
                 self.p[Flag::Zero] = self.a == 0;
                 self.p[Flag::Negative] = (self.a as i8) < 0;
+            },
+            Op::INC(addr) => {
+                let byte = self.bus.read(addr).unwrap();
+                let result = byte.wrapping_add(1);
+                self.bus.write(addr, result).unwrap();
+                self.p[Flag::Zero] = result == 0;
+                self.p[Flag::Negative] = (result as i8) < 0;
             },
         }
     }
@@ -1839,6 +1847,88 @@ mod tests {
         assert!(
             result == expected,
             "Zero flag cleared incorrectly. Result {}, Expected {}",
+            result,
+            expected
+        );
+    }
+    #[test]
+    fn op_inc() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let (mut x, mut addr, mut result, mut expected);
+
+        // value correct
+        cpu.reset();
+        addr = 2;
+        x = 0x43;
+        cpu.bus.ram[addr as usize] = x;
+        expected = x + 1;
+        cpu.execute(Op::INC(addr));
+        result = cpu.bus.ram[addr as usize];
+        assert!(
+            result == expected,
+            "Value incorrect. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // zero flag set correctly
+        cpu.reset();
+        addr = 3;
+        x = 0xff;
+        cpu.bus.ram[addr as usize] = x;
+        expected = true as u8;
+        cpu.execute(Op::INC(addr));
+        result = cpu.p[Flag::Zero] as u8;
+        assert!(
+            result == expected,
+            "Zero flag not set correctly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // zero flag cleared correctly
+        cpu.reset();
+        addr = 3;
+        x = 0x5;
+        cpu.bus.ram[addr as usize] = x;
+        expected = false as u8;
+        cpu.p[Flag::Zero] = true;
+        cpu.execute(Op::INC(addr));
+        result = cpu.p[Flag::Zero] as u8;
+        assert!(
+            result == expected,
+            "Zero flag not cleared correctly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // negative flag set correctly
+        cpu.reset();
+        addr = 1;
+        x = 0xfa;
+        cpu.bus.ram[addr as usize] = x;
+        expected = true as u8;
+        cpu.execute(Op::INC(addr));
+        result = cpu.p[Flag::Negative] as u8;
+        assert!(
+            result == expected,
+            "Negative flag not set correctly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // negative flag cleared correctly
+        cpu.reset();
+        addr = 3;
+        x = 0x32;
+        cpu.bus.ram[addr as usize] = x;
+        expected = false as u8;
+        cpu.p[Flag::Negative] = true;
+        cpu.execute(Op::INC(addr));
+        result = cpu.p[Flag::Negative] as u8;
+        assert!(
+            result == expected,
+            "Negative flag not cleared correctly. Result {}, Expected {}",
             result,
             expected
         );
