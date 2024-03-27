@@ -55,6 +55,7 @@ enum Op {
     INX,
     INY,
     JMP(u16),
+    JSR(u16),
 }
 
 enum Flag {
@@ -254,6 +255,12 @@ impl<T: Bus> Cpu<T> {
                 self.p[Flag::Negative] = (self.y as i8) < 0;
             },
             Op::JMP(addr) => {
+                self.pc = addr;
+            },
+            Op::JSR(addr) => {
+                let pc = self.pc.to_le_bytes();
+                self.stack_push(pc[0]);
+                self.stack_push(pc[1]);
                 self.pc = addr;
             },
         }
@@ -2108,6 +2115,47 @@ mod tests {
         assert!(
             result == expected,
             "Incorrect PC value. Result {}, Expected {}",
+            result,
+            expected
+        );
+    }
+    #[test]
+    fn op_jsr() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let (mut addr, mut result, mut expected);
+        
+        // stack contains correct values
+        cpu.reset();
+        addr = 0xa2a1;
+        cpu.pc = 0x526a;
+        cpu.execute(Op::JSR(addr));
+        expected = 0x6a;
+        result = cpu.stack[0xff];
+        assert!(
+            result == expected,
+            "First byte incorrect. Result {}, Expected {}",
+            result, 
+            expected
+        );
+        expected = 0x52;
+        result = cpu.stack[0xfe];
+        assert!(
+            result == expected,
+            "Second byte incorrect. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // pc value changed correctly
+        cpu.reset();
+        cpu.pc = 0x1234;
+        addr = 0x5278;
+        let expected = addr;
+        cpu.execute(Op::JSR(addr));
+        let result = cpu.pc;
+        assert!(
+            result == expected,
+            "PC value incorrect. Result {}, Expected {}",
             result,
             expected
         );
