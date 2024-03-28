@@ -1,21 +1,10 @@
 use std::ops::{Index, IndexMut};
 use std::convert::From;
 
-#[derive(Debug)]
-pub struct BusReadError;
-
-#[derive(Debug)]
-pub struct BusWriteError;
-
-pub trait Bus {
-    fn read(&self, addr: u16) -> Result<u8, BusReadError>;
-    fn write(&mut self, addr: u16, data: u8) -> Result<(), BusWriteError>;
-}
-
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Flags([bool; 7]);
 
-pub struct Cpu<T: Bus> {
+pub struct Cpu {
     pub pc: u16,
     pub a: u8,
     pub x: u8,
@@ -23,17 +12,16 @@ pub struct Cpu<T: Bus> {
     pub s: u8,
     pub p: Flags,
     pub stack: [u8; 256],
-    bus: T,
 }
 
-enum Op {
+enum Op<'a> {
     ADC(u8),
     AND(u8),
-    ASL(u16),
+    ASL(&'a mut u8),
     BCC(u16),
     BCS(u16),
     BEQ(u16),
-    BIT(u16),
+    BIT(u8),
     BMI(u16),
     BNE(u16),
     BPL(u16),
@@ -47,11 +35,11 @@ enum Op {
     CMP(u8),
     CPX(u8),
     CPY(u8),
-    DEC(u16),
+    DEC(&'a mut u8),
     DEX,
     DEY,
     EOR(u8),
-    INC(u16),
+    INC(&'a mut u8),
     INX,
     INY,
     JMP(u16),
@@ -71,8 +59,8 @@ enum Flag {
     Carry,
 }
 
-impl<T: Bus> Cpu<T> {
-    pub fn new(bus: T) -> Self {
+impl Cpu {
+    pub fn new() -> Self {
         Self {
             pc: 0,
             a: 0,
@@ -81,7 +69,6 @@ impl<T: Bus> Cpu<T> {
             s: 0xff,
             p: Flags([false; 7]), // N,V,B,D,I,Z,C
             stack: [0; 256],
-            bus,
         }
     }
 
@@ -125,19 +112,18 @@ impl<T: Bus> Cpu<T> {
                 self.p[Flag::Negative] = signed_result < 0;
             },
             Op::ASL(addr) => {
-                let byte = self.bus.read(addr).unwrap();
+                let byte = *addr;
                 let bit_seven = (byte & 0b10000000) >> 7;
                 let unsigned_result = byte << 1;
                 let signed_result = unsigned_result as i8;
-                self.bus.write(addr, unsigned_result).unwrap();
+                *addr = unsigned_result;
                 self.p[Flag::Carry] = bit_seven != 0;
                 self.p[Flag::Zero] = unsigned_result == 0;
                 self.p[Flag::Negative] = signed_result < 0;
             },
             Op::BCC(x) => {
                 if !self.p[Flag::Carry] {
-                    self.pc = self.pc.wrapping_add(x);
-                }
+                    self.pc = self.pc.wrapping_add(x); }
             },
             Op::BCS(x) => {
                 if self.p[Flag::Carry] {
@@ -149,11 +135,10 @@ impl<T: Bus> Cpu<T> {
                     self.pc = self.pc.wrapping_add(x);
                 }
             },
-            Op::BIT(addr) => {
-                let byte = self.bus.read(addr).unwrap();
-                let bit_seven = (byte & 0b10000000) >> 7;
-                let bit_six = (byte & 0b01000000) >> 6;
-                self.p[Flag::Zero] = (self.a & byte) == 0;
+            Op::BIT(x) => {
+                let bit_seven = (x & 0b10000000) >> 7;
+                let bit_six = (x & 0b01000000) >> 6;
+                self.p[Flag::Zero] = (self.a & x) == 0;
                 self.p[Flag::Negative] = bit_seven != 0;
                 self.p[Flag::Overflow] = bit_six != 0;
             },
@@ -219,9 +204,8 @@ impl<T: Bus> Cpu<T> {
                 self.p[Flag::Negative] = (result as i8) < 0;
             },
             Op::DEC(addr) => {
-                let byte = self.bus.read(addr).unwrap();
-                let result = byte.wrapping_sub(1);
-                self.bus.write(addr, result).unwrap();
+                let result = (*addr).wrapping_sub(1);
+                *addr = result;
                 self.p[Flag::Zero] = result == 0;
                 self.p[Flag::Negative] = (result as i8) < 0;
             },
@@ -241,9 +225,8 @@ impl<T: Bus> Cpu<T> {
                 self.p[Flag::Negative] = (self.a as i8) < 0;
             },
             Op::INC(addr) => {
-                let byte = self.bus.read(addr).unwrap();
-                let result = byte.wrapping_add(1);
-                self.bus.write(addr, result).unwrap();
+                let result = (*addr).wrapping_add(1);
+                *addr = result;
                 self.p[Flag::Zero] = result == 0;
                 self.p[Flag::Negative] = (result as i8) < 0;
             },
@@ -329,35 +312,6 @@ impl From<u8> for Flags {
 mod tests {
     use super::*;
 
-    struct TestBus {
-        pub ram: [u8; 5]
-    }
-
-    impl TestBus {
-        fn new() -> Self {
-            Self {
-                ram: [0; 5],
-            }
-        }
-    }
-
-    impl Bus for TestBus {
-        fn read(&self, addr: u16) -> Result<u8, BusReadError> {
-            if (addr as usize) < self.ram.len() {
-                return Ok(self.ram[addr as usize]);
-            }
-            Err(BusReadError{})
-        }
-
-        fn write(&mut self, addr: u16, data: u8) -> Result<(), BusWriteError> {
-            if (addr as usize) < self.ram.len() {
-                self.ram[addr as usize] = data;
-                return Ok(())
-            }
-            Err(BusWriteError{})
-        }
-    }
-
     #[test]
     fn flags_to_u8() {
         let (mut result, mut expected);
@@ -418,7 +372,7 @@ mod tests {
 
     #[test]
     fn stack_push() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // correctly adjusts stack pointer
@@ -476,7 +430,7 @@ mod tests {
 
     #[test]
     fn op_adc() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // no carry bit
@@ -655,7 +609,7 @@ mod tests {
 
     #[test]
     fn op_and() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // correct answer
@@ -733,16 +687,15 @@ mod tests {
 
     #[test]
     fn op_asl() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let (mut addr, mut result, mut expected);
+        let mut cpu = Cpu::new();
+        let (mut x, mut result, mut expected);
 
         // shifts correctly
         cpu.reset();
-        addr = 2u16;
-        cpu.bus.ram[addr as usize] = 2;
+        x = 2u8;
         expected = 0b00000100;
-        cpu.execute(Op::ASL(addr));
-        result = cpu.bus.read(addr).unwrap();
+        cpu.execute(Op::ASL(&mut x));
+        result = x;
         assert!(
             result == expected,
             "Incorrect value in memory. Expected {}, Result {}",
@@ -752,10 +705,9 @@ mod tests {
 
         // sets carry correctly
         cpu.reset();
-        addr = 3u16;
-        cpu.bus.ram[addr as usize] = 0b10001000;
+        x = 0b10001000;
         expected = 1;
-        cpu.execute(Op::ASL(addr));
+        cpu.execute(Op::ASL(&mut x));
         result = cpu.p[Flag::Carry] as u8;
         assert!(
             result == expected,
@@ -766,11 +718,10 @@ mod tests {
 
         // clears carry correctly
         cpu.reset();
-        addr = 1u16;
-        cpu.bus.ram[addr as usize] = 0b01001111;
+        x = 0b01001111;
         expected = 0;
         cpu.p[Flag::Carry] = true;
-        cpu.execute(Op::ASL(addr));
+        cpu.execute(Op::ASL(&mut x));
         result = cpu.p[Flag::Carry] as u8;
         assert!(
             result == expected,
@@ -781,10 +732,9 @@ mod tests {
 
         // sets zero flag correctly
         cpu.reset();
-        addr = 4u16;
-        cpu.bus.ram[addr as usize] = 0b10000000;
+        x = 0b10000000;
         expected = 1;
-        cpu.execute(Op::ASL(addr));
+        cpu.execute(Op::ASL(&mut x));
         result = cpu.p[Flag::Zero] as u8;
         assert!(
             result == expected,
@@ -795,11 +745,10 @@ mod tests {
 
         // clears zero flag correctly
         cpu.reset();
-        addr = 4u16;
-        cpu.bus.ram[addr as usize] = 0b01001111;
+        x = 0b01001111;
         expected = 0;
         cpu.p[Flag::Zero] = true;
-        cpu.execute(Op::ASL(addr));
+        cpu.execute(Op::ASL(&mut x));
         result = cpu.p[Flag::Zero] as u8;
         assert!(
             result == expected,
@@ -810,10 +759,9 @@ mod tests {
 
         // sets negative flag correctly
         cpu.reset();
-        addr = 4u16;
-        cpu.bus.ram[addr as usize] = 0b01000001;
+        x = 0b01000001;
         expected = 1;
-        cpu.execute(Op::ASL(addr));
+        cpu.execute(Op::ASL(&mut x));
         result = cpu.p[Flag::Negative] as u8;
         assert!(
             result == expected,
@@ -824,11 +772,10 @@ mod tests {
 
         // clears negative flag correctly
         cpu.reset();
-        addr = 4u16;
-        cpu.bus.ram[addr as usize] = 0b00001111;
+        x = 0b00001111;
         expected = 0;
         cpu.p[Flag::Negative] = true;
-        cpu.execute(Op::ASL(addr));
+        cpu.execute(Op::ASL(&mut x));
         result = cpu.p[Flag::Negative] as u8;
         assert!(
             result == expected,
@@ -840,7 +787,7 @@ mod tests {
 
     #[test]
     fn op_bcc() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // branches when carry cleared
@@ -873,7 +820,7 @@ mod tests {
     }
     #[test]
     fn op_bcs() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // branches when carry set
@@ -906,7 +853,7 @@ mod tests {
     }
     #[test]
     fn op_beq() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // branches when zero flag set
@@ -940,17 +887,16 @@ mod tests {
 
     #[test]
     fn op_bit() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let (mut addr, mut result, mut expected);
+        let mut cpu = Cpu::new();
+        let (mut x, mut result, mut expected);
 
         // sets zero flag correctly
         cpu.reset();
-        addr = 2u16;
         cpu.a = 0b11001100;
-        cpu.bus.ram[addr as usize] = 0b00110011;
+        x = 0b00110011;
         cpu.p[Flag::Zero] = false;
         expected = true;
-        cpu.execute(Op::BIT(addr));
+        cpu.execute(Op::BIT(x));
         result = cpu.p[Flag::Zero];
         assert!(
             result == expected,
@@ -961,12 +907,11 @@ mod tests {
 
         // clears zero flag correctly
         cpu.reset();
-        addr = 3u16;
         cpu.a = 0b11011100;
-        cpu.bus.ram[addr as usize] = 0b00111111;
+        x = 0b00111111;
         cpu.p[Flag::Zero] = true;
         expected = false;
-        cpu.execute(Op::BIT(addr));
+        cpu.execute(Op::BIT(x));
         result = cpu.p[Flag::Zero];
         assert!(
             result == expected,
@@ -977,12 +922,11 @@ mod tests {
 
         // sets negative flag correctly
         cpu.reset();
-        addr = 1u16;
         cpu.a = 0b01010000;
-        cpu.bus.ram[addr as usize] = 0b10110011;
+        x = 0b10110011;
         cpu.p[Flag::Negative] = false;
         expected = true;
-        cpu.execute(Op::BIT(addr));
+        cpu.execute(Op::BIT(x));
         result = cpu.p[Flag::Negative];
         assert!(
             result == expected,
@@ -993,12 +937,11 @@ mod tests {
 
         // clears negative flag correctly
         cpu.reset();
-        addr = 3u16;
         cpu.a = 0b11011100;
-        cpu.bus.ram[addr as usize] = 0b01111111;
+        x = 0b01111111;
         cpu.p[Flag::Negative] = true;
         expected = false;
-        cpu.execute(Op::BIT(addr));
+        cpu.execute(Op::BIT(x));
         result = cpu.p[Flag::Negative];
         assert!(
             result == expected,
@@ -1009,12 +952,11 @@ mod tests {
 
         // sets overflow flag correctly
         cpu.reset();
-        addr = 0u16;
         cpu.a = 0b01010000;
-        cpu.bus.ram[addr as usize] = 0b01010011;
+        x = 0b01010011;
         cpu.p[Flag::Overflow] = false;
         expected = true;
-        cpu.execute(Op::BIT(addr));
+        cpu.execute(Op::BIT(x));
         result = cpu.p[Flag::Overflow];
         assert!(
             result == expected,
@@ -1025,12 +967,11 @@ mod tests {
 
         // clears overflow flag correctly
         cpu.reset();
-        addr = 3u16;
         cpu.a = 0b11011100;
-        cpu.bus.ram[addr as usize] = 0b10111111;
+        x = 0b10111111;
         cpu.p[Flag::Overflow] = true;
         expected = false;
-        cpu.execute(Op::BIT(addr));
+        cpu.execute(Op::BIT(x));
         result = cpu.p[Flag::Overflow];
         assert!(
             result == expected,
@@ -1042,7 +983,7 @@ mod tests {
 
     #[test]
     fn op_bmi() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // branches when negative flag set
@@ -1076,7 +1017,7 @@ mod tests {
 
     #[test]
     fn op_bne() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // branches when zero flag clear
@@ -1110,7 +1051,7 @@ mod tests {
 
     #[test]
     fn op_bpl() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // branches when negative flag clear
@@ -1144,7 +1085,7 @@ mod tests {
 
     #[test]
     fn op_brk() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut result, mut expected);
         
         // stack contains correct values
@@ -1179,7 +1120,7 @@ mod tests {
     }
     #[test]
     fn op_bvc() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // branches when overflow cleared
@@ -1212,7 +1153,7 @@ mod tests {
     }
     #[test]
     fn op_bvs() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // branches when overflow set
@@ -1246,7 +1187,7 @@ mod tests {
 
     #[test]
     fn op_clc() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
 
         let expected = false;
         cpu.p[Flag::Carry] = true;
@@ -1259,9 +1200,10 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_cld() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
 
         let expected = false;
         cpu.p[Flag::Decimal] = true;
@@ -1274,9 +1216,10 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_cli() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
 
         let expected = false;
         cpu.p[Flag::InterruptDisable] = true;
@@ -1289,9 +1232,10 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_clv() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
 
         let expected = false;
         cpu.p[Flag::Overflow] = true;
@@ -1304,9 +1248,10 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_cmp() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // sets carry flag correctly
@@ -1398,9 +1343,10 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_cpx() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // sets carry flag correctly
@@ -1492,9 +1438,10 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_cpy() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // sets carry flag correctly
@@ -1589,17 +1536,15 @@ mod tests {
 
     #[test]
     fn op_dec() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let (mut x, mut addr, mut result, mut expected);
+        let mut cpu = Cpu::new();
+        let (mut x, mut result, mut expected);
 
         // value correct
         cpu.reset();
-        addr = 2;
         x = 0x43;
-        cpu.bus.ram[addr as usize] = x;
         expected = x - 1;
-        cpu.execute(Op::DEC(addr));
-        result = cpu.bus.ram[addr as usize];
+        cpu.execute(Op::DEC(&mut x));
+        result = x;
         assert!(
             result == expected,
             "Value incorrect. Result {}, Expected {}",
@@ -1609,11 +1554,9 @@ mod tests {
 
         // zero flag set correctly
         cpu.reset();
-        addr = 3;
         x = 0x1;
-        cpu.bus.ram[addr as usize] = x;
         expected = true as u8;
-        cpu.execute(Op::DEC(addr));
+        cpu.execute(Op::DEC(&mut x));
         result = cpu.p[Flag::Zero] as u8;
         assert!(
             result == expected,
@@ -1624,12 +1567,10 @@ mod tests {
 
         // zero flag cleared correctly
         cpu.reset();
-        addr = 3;
         x = 0x5;
-        cpu.bus.ram[addr as usize] = x;
         expected = false as u8;
         cpu.p[Flag::Zero] = true;
-        cpu.execute(Op::DEC(addr));
+        cpu.execute(Op::DEC(&mut x));
         result = cpu.p[Flag::Zero] as u8;
         assert!(
             result == expected,
@@ -1640,11 +1581,9 @@ mod tests {
 
         // negative flag set correctly
         cpu.reset();
-        addr = 1;
         x = 0;
-        cpu.bus.ram[addr as usize] = x;
         expected = true as u8;
-        cpu.execute(Op::DEC(addr));
+        cpu.execute(Op::DEC(&mut x));
         result = cpu.p[Flag::Negative] as u8;
         assert!(
             result == expected,
@@ -1655,12 +1594,10 @@ mod tests {
 
         // negative flag cleared correctly
         cpu.reset();
-        addr = 3;
         x = 0x32;
-        cpu.bus.ram[addr as usize] = x;
         expected = false as u8;
         cpu.p[Flag::Negative] = true;
-        cpu.execute(Op::DEC(addr));
+        cpu.execute(Op::DEC(&mut x));
         result = cpu.p[Flag::Negative] as u8;
         assert!(
             result == expected,
@@ -1669,9 +1606,10 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_dex() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut result, mut expected);
 
         // value correct
@@ -1741,9 +1679,10 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_dey() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut result, mut expected);
 
         // value correct
@@ -1813,9 +1752,10 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_eor() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // correct value
@@ -1892,19 +1832,18 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_inc() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let (mut x, mut addr, mut result, mut expected);
+        let mut cpu = Cpu::new();
+        let (mut x, mut result, mut expected);
 
         // value correct
         cpu.reset();
-        addr = 2;
         x = 0x43;
-        cpu.bus.ram[addr as usize] = x;
         expected = x + 1;
-        cpu.execute(Op::INC(addr));
-        result = cpu.bus.ram[addr as usize];
+        cpu.execute(Op::INC(&mut x));
+        result = x;
         assert!(
             result == expected,
             "Value incorrect. Result {}, Expected {}",
@@ -1914,11 +1853,9 @@ mod tests {
 
         // zero flag set correctly
         cpu.reset();
-        addr = 3;
         x = 0xff;
-        cpu.bus.ram[addr as usize] = x;
         expected = true as u8;
-        cpu.execute(Op::INC(addr));
+        cpu.execute(Op::INC(&mut x));
         result = cpu.p[Flag::Zero] as u8;
         assert!(
             result == expected,
@@ -1929,12 +1866,10 @@ mod tests {
 
         // zero flag cleared correctly
         cpu.reset();
-        addr = 3;
         x = 0x5;
-        cpu.bus.ram[addr as usize] = x;
         expected = false as u8;
         cpu.p[Flag::Zero] = true;
-        cpu.execute(Op::INC(addr));
+        cpu.execute(Op::INC(&mut x));
         result = cpu.p[Flag::Zero] as u8;
         assert!(
             result == expected,
@@ -1945,11 +1880,9 @@ mod tests {
 
         // negative flag set correctly
         cpu.reset();
-        addr = 1;
         x = 0xfa;
-        cpu.bus.ram[addr as usize] = x;
         expected = true as u8;
-        cpu.execute(Op::INC(addr));
+        cpu.execute(Op::INC(&mut x));
         result = cpu.p[Flag::Negative] as u8;
         assert!(
             result == expected,
@@ -1960,12 +1893,10 @@ mod tests {
 
         // negative flag cleared correctly
         cpu.reset();
-        addr = 3;
         x = 0x32;
-        cpu.bus.ram[addr as usize] = x;
         expected = false as u8;
         cpu.p[Flag::Negative] = true;
-        cpu.execute(Op::INC(addr));
+        cpu.execute(Op::INC(&mut x));
         result = cpu.p[Flag::Negative] as u8;
         assert!(
             result == expected,
@@ -1974,9 +1905,10 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_inx() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut result, mut expected);
 
         // value correct
@@ -2046,9 +1978,10 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_iny() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut result, mut expected);
 
         // value correct
@@ -2118,9 +2051,10 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_jmp() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (addr, result, expected);
 
         // correct value
@@ -2137,9 +2071,10 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_jsr() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut addr, mut result, mut expected);
         
         // stack contains correct values
@@ -2178,9 +2113,10 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_lda() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // loads correctly
@@ -2253,9 +2189,10 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_ldx() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // loads correctly
@@ -2328,9 +2265,10 @@ mod tests {
             expected
         );
     }
+
     #[test]
     fn op_ldy() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new();
         let (mut x, mut result, mut expected);
 
         // loads correctly
