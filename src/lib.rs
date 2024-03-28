@@ -57,6 +57,7 @@ enum Op {
     JMP(u16),
     JSR(u16),
     LDA(u8),
+    LDX(u8),
 }
 
 enum Flag {
@@ -266,6 +267,11 @@ impl<T: Bus> Cpu<T> {
             },
             Op::LDA(x) => {
                 self.a = x;
+                self.p[Flag::Zero] = x == 0;
+                self.p[Flag::Negative] = (x as i8) < 0;
+            },
+            Op::LDX(x) => {
+                self.x = x;
                 self.p[Flag::Zero] = x == 0;
                 self.p[Flag::Negative] = (x as i8) < 0;
             },
@@ -2233,6 +2239,81 @@ mod tests {
         cpu.p[Flag::Negative] = true;
         expected = false as u8;
         cpu.execute(Op::LDA(x));
+        result = cpu.p[Flag::Negative] as u8;
+        assert!(
+            result == expected,
+            "Zero flag cleared incorrectly. Result {}, Expected {}",
+            result,
+            expected
+        );
+    }
+    #[test]
+    fn op_ldx() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let (mut x, mut result, mut expected);
+
+        // loads correctly
+        cpu.reset();
+        cpu.x = 0xde;
+        x = 0x01;
+        expected = x;
+        cpu.execute(Op::LDX(x));
+        result = cpu.x;
+        assert!(
+            result == expected,
+            "Incorrect value in A. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // sets zero flag correctly
+        cpu.reset();
+        x = 0;
+        cpu.p[Flag::Zero] = false;
+        expected = true as u8;
+        cpu.execute(Op::LDX(x));
+        result = cpu.p[Flag::Zero] as u8;
+        assert!(
+            result == expected,
+            "Zero flag set incorrectly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // clears zero flag correctly
+        cpu.reset();
+        x = 11;
+        cpu.p[Flag::Zero] = true;
+        expected = false as u8;
+        cpu.execute(Op::LDX(x));
+        result = cpu.p[Flag::Zero] as u8;
+        assert!(
+            result == expected,
+            "Zero flag cleared incorrectly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // sets negative flag correctly
+        cpu.reset();
+        x = 0xf1;
+        cpu.p[Flag::Negative] = false;
+        expected = true as u8;
+        cpu.execute(Op::LDX(x));
+        result = cpu.p[Flag::Negative] as u8;
+        assert!(
+            result == expected,
+            "Zero flag cleared incorrectly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // clears negative flag correctly
+        cpu.reset();
+        x = 55;
+        cpu.p[Flag::Negative] = true;
+        expected = false as u8;
+        cpu.execute(Op::LDX(x));
         result = cpu.p[Flag::Negative] as u8;
         assert!(
             result == expected,
