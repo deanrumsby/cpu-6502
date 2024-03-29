@@ -47,6 +47,7 @@ enum Op<'a> {
     LDA(u8),
     LDX(u8),
     LDY(u8),
+    LSR(&'a mut u8),
 }
 
 enum Flag {
@@ -263,6 +264,15 @@ impl Cpu {
                 self.y = x;
                 self.p[Flag::Zero] = x == 0;
                 self.p[Flag::Negative] = (x as i8) < 0;
+            },
+            Op::LSR(addr) => {
+                let byte = *addr;
+                let bit_zero = byte & 0b00000001;
+                let result = byte >> 1;
+                *addr = result;
+                self.p[Flag::Carry] = bit_zero != 0;
+                self.p[Flag::Zero] = result == 0;
+                self.p[Flag::Negative] = false;
             },
         }
     }
@@ -2337,6 +2347,93 @@ mod tests {
         assert!(
             result == expected,
             "Zero flag cleared incorrectly. Result {}, Expected {}",
+            result,
+            expected
+        );
+    }
+
+    #[test]
+    fn op_lsr() {
+        let mut cpu = Cpu::new();
+        let (mut x, mut result, mut expected);
+
+        // correct value
+        cpu.reset();
+        x = 0b10101010;
+        expected = 0b01010101;
+        cpu.execute(Op::LSR(&mut x));
+        result = x;
+        assert!(
+            result == expected,
+            "Incorrect value from bitshifting. Result {:b}, Expected {:b}",
+            result,
+            expected
+        );
+
+        // sets carry flag
+        cpu.reset();
+        x = 0b00000001;
+        expected = true as u8;
+        cpu.execute(Op::LSR(&mut x));
+        result = cpu.p[Flag::Carry] as u8;
+        assert!(
+            result == expected,
+            "Carry not set correctly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // clears carry flag
+        cpu.reset();
+        x = 0b00110010;
+        expected = false as u8;
+        cpu.p[Flag::Carry] = true;
+        cpu.execute(Op::LSR(&mut x));
+        result = cpu.p[Flag::Carry] as u8;
+        assert!(
+            result == expected,
+            "Carry not cleared correctly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // sets zero flag
+        cpu.reset();
+        x = 0b00000001;
+        expected = true as u8;
+        cpu.execute(Op::LSR(&mut x));
+        result = cpu.p[Flag::Zero] as u8;
+        assert!(
+            result == expected,
+            "Zero flag not set correctly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // clears zero flag
+        cpu.reset();
+        x = 0b10111010;
+        expected = false as u8;
+        cpu.p[Flag::Zero] = true;
+        cpu.execute(Op::LSR(&mut x));
+        result = cpu.p[Flag::Zero] as u8;
+        assert!(
+            result == expected,
+            "Zero flag not cleared correctly. Result {}, Expected {}",
+            result,
+            expected
+        );
+
+        // clears negative flag
+        cpu.reset();
+        x = 0b10111110;
+        expected = false as u8;
+        cpu.p[Flag::Negative] = true;
+        cpu.execute(Op::LSR(&mut x));
+        result = cpu.p[Flag::Negative] as u8;
+        assert!(
+            result == expected,
+            "Negative flag not cleared correctly. Result {}, Expected {}",
             result,
             expected
         );
