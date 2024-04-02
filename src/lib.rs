@@ -2,7 +2,7 @@ use std::convert::From;
 use std::fmt;
 use std::ops::{Index, IndexMut};
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq)]
 pub struct Flags([bool; 7]);
 
 pub struct Cpu<T: Bus> {
@@ -29,12 +29,26 @@ impl<T: Bus> PartialEq for Cpu<T> {
 impl<T: Bus> fmt::Debug for Cpu<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Cpu")
-            .field("pc", &self.pc)
-            .field("a", &self.a)
-            .field("x", &self.x)
-            .field("y", &self.y)
-            .field("s", &self.s)
+            .field("pc", &format_args!("{:x}", &self.pc))
+            .field("a", &format_args!("{:x}", &self.a))
+            .field("x", &format_args!("{:x}", &self.x))
+            .field("y", &format_args!("{:x}", &self.y))
+            .field("s", &format_args!("{:x}", &self.s))
             .field("p", &self.p)
+            .finish()
+    }
+}
+
+impl fmt::Debug for Flags {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Flags")
+            .field("negative", &self[Flag::Negative])
+            .field("overlow", &self[Flag::Overflow])
+            .field("break", &self[Flag::Break])
+            .field("decimal", &self[Flag::Decimal])
+            .field("interrupt disable", &self[Flag::InterruptDisable])
+            .field("zero", &self[Flag::Zero])
+            .field("carry", &self[Flag::Carry])
             .finish()
     }
 }
