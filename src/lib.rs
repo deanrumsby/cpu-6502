@@ -659,142 +659,124 @@ mod tests {
         assert_eq!(cpu, expected, "non negative result with negative flag set");
     }
 
-    // #[test]
-    // fn op_asl() {
-    //     let mut cpu = Cpu::new(TestBus::new());
-    //     let mut expected = Cpu::new(TestBus::new());
-    //
-    //     // typical
-    //     cpu.a = 0b00000010;
-    //     expected.a = 0b00000100;
-    //     cpu.execute(Op::ASL(&mut cpu.a));
-    //     assert_eq!(cpu, expected, "typical");
-    //
-    //     // bit seven set
-    //     cpu = Cpu::new(TestBus::new());
-    //     expected = Cpu::new(TestBus::new());
-    //     cpu.a = 0b10001000;
-    //     expected.a = 0b00010000;
-    //     expected.p[Flag::Carry] = true;
-    //     cpu.execute(Op::ASL(&mut cpu.a));
-    //     assert_eq!(cpu, expected, "bit seven set");
-    //
-    //     // bit seven clear with carry flag set
-    //     cpu = Cpu::new(TestBus::new());
-    //     expected = Cpu::new(TestBus::new());
-    //     cpu.a = 0b00001111;
-    //     cpu.p[Flag::Carry] = true;
-    //     expected.a = 0b00011110;
-    //     expected.p[Flag::Carry] = false;
-    //     cpu.execute(Op::ASL(&mut cpu.a));
-    //     assert_eq!(cpu, expected, "bit seven clear with carry flag set");
-    //
-    //     // zero result
-    //     cpu = Cpu::new(TestBus::new());
-    //     expected = Cpu::new(TestBus::new());
-    //     cpu.a = 0;
-    //     expected.a = 0;
-    //     expected.p[Flag::Carry] = true;
-    //     expected.p[Flag::Zero] = true;
-    //     cpu.execute(Op::ASL(&mut cpu.a));
-    //     assert_eq!(cpu, expected, "zero result");
-    //
-    //     // non zero result with zero flag set
-    //     cpu = Cpu::new(TestBus::new());
-    //     expected = Cpu::new(TestBus::new());
-    //     cpu.a = 0b00001111;
-    //     cpu.p[Flag::Zero] = true;
-    //     expected.a = 0b00011110;
-    //     expected.p[Flag::Zero] = false;
-    //     cpu.execute(Op::ASL(&mut cpu.a));
-    //     assert_eq!(cpu, expected, "non zero result with zero flag set");
-    //
-    //     // negative result
-    //     cpu = Cpu::new(TestBus::new());
-    //     expected = Cpu::new(TestBus::new());
-    //     cpu.a = 0b01000001;
-    //     expected.a = 0b10000010;
-    //     expected.p[Flag::Negative] = true;
-    //     cpu.execute(Op::ASL(&mut cpu.a));
-    //     assert_eq!(cpu, expected, "negative result");
-    //
-    //     // non negative result with negative flag set
-    //     cpu = Cpu::new(TestBus::new());
-    //     expected = Cpu::new(TestBus::new());
-    //     cpu.a = 0b00001111;
-    //     cpu.p[Flag::Negative] = true;
-    //     expected.a = 0b00011110;
-    //     expected.p[Flag::Negative] = false;
-    //     cpu.execute(Op::ASL(&mut cpu.a));
-    //     assert_eq!(cpu, expected, "non negative result with negative flag set");
-    // }
+    #[test]
+    fn op_asl() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let mut expected = Cpu::new(TestBus::new());
+
+        // typical
+        cpu.a = 0b00000010;
+        expected.a = 0b00000100;
+        cpu.execute(Op::ASL(Address::Accumulator));
+        assert_eq!(cpu, expected, "typical");
+
+        // bit seven set
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
+        cpu.a = 0b10001000;
+        expected.a = 0b00010000;
+        expected.p[Flag::Carry] = true;
+        cpu.execute(Op::ASL(Address::Accumulator));
+        assert_eq!(cpu, expected, "bit seven set");
+
+        // bit seven clear with carry flag set
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
+        cpu.a = 0b00001111;
+        cpu.p[Flag::Carry] = true;
+        expected.a = 0b00011110;
+        expected.p[Flag::Carry] = false;
+        cpu.execute(Op::ASL(Address::Accumulator));
+        assert_eq!(cpu, expected, "bit seven clear with carry flag set");
+
+        // zero result
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
+        cpu.a = 0;
+        expected.a = 0;
+        expected.p[Flag::Zero] = true;
+        cpu.execute(Op::ASL(Address::Accumulator));
+        assert_eq!(cpu, expected, "zero result");
+
+        // non zero result with zero flag set
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
+        cpu.a = 0b00001111;
+        cpu.p[Flag::Zero] = true;
+        expected.a = 0b00011110;
+        expected.p[Flag::Zero] = false;
+        cpu.execute(Op::ASL(Address::Accumulator));
+        assert_eq!(cpu, expected, "non zero result with zero flag set");
+
+        // negative result
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
+        cpu.a = 0b01000001;
+        expected.a = 0b10000010;
+        expected.p[Flag::Negative] = true;
+        cpu.execute(Op::ASL(Address::Accumulator));
+        assert_eq!(cpu, expected, "negative result");
+
+        // non negative result with negative flag set
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
+        cpu.a = 0b00001111;
+        cpu.p[Flag::Negative] = true;
+        expected.a = 0b00011110;
+        expected.p[Flag::Negative] = false;
+        cpu.execute(Op::ASL(Address::Accumulator));
+        assert_eq!(cpu, expected, "non negative result with negative flag set");
+    }
 
     #[test]
     fn op_bcc() {
         let mut cpu = Cpu::new(TestBus::new());
-        let (mut x, mut result, mut expected);
+        let mut expected = Cpu::new(TestBus::new());
+        let mut x;
 
-        // branches when carry cleared
-        cpu.reset();
+        // carry cleared
         x = 0x1123;
-        expected = cpu.pc + x;
         cpu.p[Flag::Carry] = false;
+        expected.pc = cpu.pc + x;
         cpu.execute(Op::BCC(x));
-        result = cpu.pc;
-        assert!(
-            result == expected,
-            "Incorrect PC value on branching. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "carry cleared");
 
-        // does not branch when carry set
-        cpu.reset();
+        // carry set
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
         x = 0x2232;
-        expected = cpu.pc;
         cpu.p[Flag::Carry] = true;
+        expected.pc = cpu.pc;
+        expected.p[Flag::Carry] = true;
         cpu.execute(Op::BCC(x));
-        result = cpu.pc;
-        assert!(
-            result == expected,
-            "Incorrect PC value on non-branching. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "carry set");
     }
+
     #[test]
     fn op_bcs() {
         let mut cpu = Cpu::new(TestBus::new());
-        let (mut x, mut result, mut expected);
+        let mut expected = Cpu::new(TestBus::new());
+        let mut x;
 
-        // branches when carry set
-        cpu.reset();
+        // carry set
         x = 0x1189;
-        expected = cpu.pc + x;
+        expected.pc = cpu.pc + x;
         cpu.p[Flag::Carry] = true;
+        expected.p[Flag::Carry] = true;
         cpu.execute(Op::BCS(x));
-        result = cpu.pc;
-        assert!(
-            result == expected,
-            "Incorrect PC value on branching. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "carry set");
 
-        // does not branch when carry cleared
-        cpu.reset();
+        // carry cleared
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
         x = 0x2211;
-        expected = cpu.pc;
+        expected.pc = cpu.pc;
         cpu.p[Flag::Carry] = false;
+        expected.p[Flag::Carry] = false;
         cpu.execute(Op::BCS(x));
-        result = cpu.pc;
-        assert!(
-            result == expected,
-            "Incorrect PC value on non-branching. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "carry cleared");
     }
+
     #[test]
     fn op_beq() {
         let mut cpu = Cpu::new(TestBus::new());
