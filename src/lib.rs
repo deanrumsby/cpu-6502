@@ -321,478 +321,316 @@ impl From<u8> for Flags {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn flags_to_u8() {
         let (mut result, mut expected);
+
         expected = 0b00100000;
         result = u8::from(Flags([false; 7]));
-        assert!(
-            result == expected,
+        assert_eq!(
+            result, expected,
             "Result {:b}, Expected {:b}",
-            result,
-            expected
+            result, expected
         );
+
         expected = 0b11111111;
         result = u8::from(Flags([true; 7]));
-        assert!(
-            result == expected,
+        assert_eq!(
+            result, expected,
             "Result {:b}, Expected {:b}",
-            result,
-            expected
+            result, expected
         );
+
         expected = 0b10111001;
         result = u8::from(Flags([true, false, true, true, false, false, true]));
-        assert!(
-            result == expected,
+        assert_eq!(
+            result, expected,
             "Result {:b}, Expected {:b}",
-            result,
-            expected
+            result, expected
         );
     }
 
     #[test]
     fn u8_to_flags() {
         let (mut result, mut expected);
+
         expected = Flags([false; 7]);
         result = Flags::from(0b00100000);
-        assert!(
-            result == expected,
-            "Result {:?}, Expected {:?}",
-            result,
-            expected
-        );
+        assert_eq!(result, expected);
+
         expected = Flags([true; 7]);
         result = Flags::from(0b11111111);
-        assert!(
-            result == expected,
-            "Result {:?}, Expected {:?}",
-            result,
-            expected
-        );
+        assert_eq!(result, expected);
+
         expected = Flags([false, true, true, true, false, true, false]);
         result = Flags::from(0b01111010);
-        assert!(
-            result == expected,
-            "Result {:?}, Expected {:?}",
-            result,
-            expected
-        );
+        assert_eq!(result, expected);
     }
 
     #[test]
     fn stack_push() {
+        // typical case
         let mut cpu = Cpu::new();
-        let (mut x, mut result, mut expected);
+        let mut expected = Cpu::new();
+        let (x0, x1) = (0x55, 0xf2);
+        cpu.stack_push(x0);
+        cpu.stack_push(x1);
+        expected.s = 0xfd;
+        expected.stack[0xff] = x0;
+        expected.stack[0xfe] = x1;
+        assert_eq!(cpu, expected);
 
-        // correctly adjusts stack pointer
-        cpu.reset();
-        expected = 0xfe;
-        x = 0x23;
-        cpu.stack_push(x);
-        result = cpu.s;
-        assert!(
-            result == expected,
-            "S not adjusted correctly. Result {}, Expected {}",
-            result,
-            expected
-        );
-
-        // stack values pushed correctly 
-        cpu.reset();
-        x = 0x23;
-        expected = x;
-        cpu.stack_push(x);
-        result = cpu.stack[0xff];
-        assert!(
-            result == expected,
-            "First byte of stack is wrong. Result {}, Expected {}",
-            result,
-            expected
-        );
-
-        // stack pointer overflows as expected
-        cpu.reset();
-        expected = 0;
+        // stack pointer overflow
+        cpu = Cpu::new();
+        expected = Cpu::new();
         cpu.stack_pop();
-        result = cpu.s;
-        assert!(
-            result == expected,
-            "S does not overflow as expected. Result {}, Expected {}",
-            result,
-            expected
-        );
+        expected.s = 0;
+        assert_eq!(cpu, expected);
 
-        // stack pointer underflows as expected
-        cpu.reset();
+        // stack pointer underflow
+        cpu = Cpu::new();
+        expected = Cpu::new();
+        let x = 0x23;
         cpu.s = 0;
-        x = 0x23;
         cpu.stack_push(x);
-        expected = 0xff;
-        result = cpu.s;
-        assert!(
-            result == expected,
-            "S does not underflow as expected. Result {}, Expected {}",
-            result,
-            expected
-        );
+        expected.s = 0xff;
+        expected.stack[0] = x;
+        assert_eq!(cpu, expected);
     }
 
     #[test]
     fn op_adc() {
         let mut cpu = Cpu::new();
-        let (mut x, mut result, mut expected);
+        let mut expected = Cpu::new();
+        let mut x;
 
         // no carry bit
-        cpu.reset();
         x = 0x8;
         cpu.a = 0x23;
-        expected = x + cpu.a;
+        expected.a = x + cpu.a;
         cpu.execute(Op::ADC(x));
-        result = cpu.a;
-        assert!(
-            result == expected,
-            "Incorrect value in A register. Result: {}, Expected: {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "no carry bit");
 
         // with carry bit
-        cpu.reset();
+        cpu = Cpu::new();
+        expected = Cpu::new();
         cpu.p[Flag::Carry] = true;
         x = 0x12;
         cpu.a = 0x15;
-        expected = x + cpu.a + 1;
+        expected.a = x + cpu.a + 1;
         cpu.execute(Op::ADC(x));
-        result = cpu.a;
-        assert!(
-            result == expected,
-            "Incorrect value in A register when carry bit set. Result: {}, Expected: {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "with carry bit");
 
-        // does not set carry flag on non overflowing op
-        cpu.reset();
-        x = 0x10;
-        cpu.a = 0x0f;
-        expected = 0;
-        cpu.execute(Op::ADC(x));
-        result = cpu.p[Flag::Carry] as u8;
-        assert!(
-            result == expected,
-            "Carry flag not set correctly on non overflowing op. Result {}, Expected {}",
-            result,
-            expected
-        );
-
-        // sets carry flag on unsigned overflow
-        cpu.reset();
+        // unsigned overflow
+        cpu = Cpu::new();
+        expected = Cpu::new();
         x = 0x5;
         cpu.a = 0xff;
-        expected = 1;
+        expected.a = x.wrapping_add(cpu.a);
+        expected.p[Flag::Carry] = true;
         cpu.execute(Op::ADC(x));
-        result = cpu.p[Flag::Carry] as u8;
-        assert!(
-            result == expected,
-            "Carry flag not set correctly on unsigned overflow. Result {}, Expected {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "unsigned overflow");
 
-        // clears carry flag on non overflowing op
-        cpu.reset();
+        // non overflowing with carry set
+        cpu = Cpu::new();
+        expected = Cpu::new();
         x = 0x5;
         cpu.a = 0x54;
-        expected = 0;
+        expected.a = x + cpu.a + 1;
         cpu.p[Flag::Carry] = true;
         cpu.execute(Op::ADC(x));
-        result = cpu.p[Flag::Carry] as u8;
-        assert!(
-            result == expected,
-            "Carry flag not cleared correctly on non overflowing op. Result {}, Expected {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "non overflowing with carry set");
 
-        // sets overflow flag on signed overflow
-        cpu.reset();
+        // signed overflow
+        cpu = Cpu::new();
+        expected = Cpu::new();
         x = 1;
         cpu.a = 127;
-        expected = 1;
+        expected.a = x + cpu.a;
+        expected.p[Flag::Overflow] = true;
+        expected.p[Flag::Negative] = true;
         cpu.execute(Op::ADC(x));
-        result = cpu.p[Flag::Overflow] as u8;
-        assert!(
-            result == expected,
-            "Overflow flag is not set correctly on signed overflow. Result {}, Expected {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "signed overflow");
 
-        // does not set overflow flag on signed nonoverflowing op
-        cpu.reset();
+        // signed non overflow with overflow set
+        cpu = Cpu::new();
+        expected = Cpu::new();
         x = 1;
         cpu.a = 126;
-        expected = 0;
-        cpu.execute(Op::ADC(x));
-        result = cpu.p[Flag::Overflow] as u8;
-        assert!(
-            result == expected,
-            "Overflow not set correctly on signed non overflowing op. Result {}, Expected {}",
-            result,
-            expected
-        );
-
-        // clears overflow flag on signed non overflowing op
-        cpu.reset();
-        x = 1;
-        cpu.a = 10;
-        expected = 0;
+        expected.a = x + cpu.a;
         cpu.p[Flag::Overflow] = true;
         cpu.execute(Op::ADC(x));
-        result = cpu.p[Flag::Overflow] as u8;
-        assert!(
-            result == expected,
-            "Overflow flag not cleared correctly on signed non overflowing op. Result {}, Expected {}", 
-            result, 
-            expected
-        );
+        assert_eq!(cpu, expected, "signed non overflow with overflow set");
 
-        // sets negative flag correctly
-        cpu.reset();
+        // negative result
+        cpu = Cpu::new();
+        expected = Cpu::new();
         x = 5;
-        cpu.a = 10u8.wrapping_neg(); 
-        expected = 1;
+        cpu.a = 10u8.wrapping_neg();
+        expected.a = x + cpu.a;
+        expected.p[Flag::Negative] = true;
         cpu.execute(Op::ADC(x));
-        result = cpu.p[Flag::Negative] as u8;
-        assert!(
-            result == expected,
-            "Negative flag not set correctly on negative sum. Result {}, Expected {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "negative result");
 
-        // clears negative flag correctly
-        cpu.reset();
+        // positive result with negative flag set
+        cpu = Cpu::new();
+        expected = Cpu::new();
         x = 12;
         cpu.a = 10u8.wrapping_neg();
-        expected = 0;
+        expected.a = x.wrapping_add(cpu.a);
+        expected.p[Flag::Carry] = true;
         cpu.p[Flag::Negative] = true;
         cpu.execute(Op::ADC(x));
-        result = cpu.p[Flag::Negative] as u8;
-        assert!(
-            result == expected,
-            "Negative flag not cleared correctly on non-negative sum. Result {}, Expected {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "positive result with negative flag set");
 
-        // sets zero flag correctly
-        cpu.reset();
+        // zero result
+        cpu = Cpu::new();
+        expected = Cpu::new();
         x = 10;
-        cpu.a = 10u8.wrapping_neg(); 
-        expected = 1;
+        cpu.a = 10u8.wrapping_neg();
+        expected.a = x.wrapping_add(cpu.a);
+        expected.p[Flag::Zero] = true;
+        expected.p[Flag::Carry] = true;
         cpu.execute(Op::ADC(x));
-        result = cpu.p[Flag::Zero] as u8;
-        assert!(
-            result == expected,
-            "Zero flag not set correctly on zero sum. Result {}, Expected {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "zero result");
 
-        // clears zero flag correctly
-        cpu.reset();
+        // non zero result with zero flag set
+        cpu = Cpu::new();
+        expected = Cpu::new();
         x = 12;
         cpu.a = 6;
-        expected = 0;
+        expected.a = x + cpu.a;
         cpu.p[Flag::Zero] = true;
         cpu.execute(Op::ADC(x));
-        result = cpu.p[Flag::Zero] as u8;
-        assert!(
-            result == expected,
-            "Zero flag not cleared correctly on non-zero sum. Result {}, Expected {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "non zero result with zero flag set");
     }
 
     #[test]
     fn op_and() {
         let mut cpu = Cpu::new();
-        let (mut x, mut result, mut expected);
+        let mut expected = Cpu::new();
+        let mut x;
 
-        // correct answer
-        cpu.reset();
+        // typical
         x = 0b00110101;
         cpu.a = 0b11010011;
-        expected = 0b00010001;
+        expected.a = 0b00010001;
         cpu.execute(Op::AND(x));
-        result = cpu.a;
-        assert!(
-            result == expected,
-            "A register contains incorrect result. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "typical");
 
-        // sets zero flag correctly
-        cpu.reset();
+        // zero result
+        cpu = Cpu::new();
+        expected = Cpu::new();
         x = 0b01010101;
         cpu.a = 0b10101010;
-        expected = 1;
+        expected.a = 0;
+        expected.p[Flag::Zero] = true;
         cpu.execute(Op::AND(x));
-        result = cpu.p[Flag::Zero] as u8;
-        assert!(
-            result == expected,
-            "Zero flag not set correctly. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "zero result");
 
-        // clears zero flag correctly 
-        cpu.reset();
+        // non zero result with zero flag set
+        cpu = Cpu::new();
+        expected = Cpu::new();
         x = 0b01010101;
         cpu.a = 0b10111010;
-        expected = 0;
         cpu.p[Flag::Zero] = true;
+        expected.a = 0b00010000;
+        expected.p[Flag::Zero] = false;
         cpu.execute(Op::AND(x));
-        result = cpu.p[Flag::Zero] as u8;
-        assert!(
-            result == expected,
-            "Zero flag not cleared correctly. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "non zero result with zero flag set");
 
-        // sets negative flag correctly
-        cpu.reset();
+        // negative result
+        cpu = Cpu::new();
+        expected = Cpu::new();
         x = 0b11010101;
         cpu.a = 0b10101010;
-        expected = 1;
+        expected.a = 0b10000000;
+        expected.p[Flag::Negative] = true;
         cpu.execute(Op::AND(x));
-        result = cpu.p[Flag::Negative] as u8;
-        assert!(
-            result == expected,
-            "Negative flag not set correctly. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "negative result");
 
-        // clears negative flag correctly 
-        cpu.reset();
+        // non negative result with negative flag set
+        cpu = Cpu::new();
+        expected = Cpu::new();
         x = 0b01010101;
         cpu.a = 0b10111010;
-        expected = 0;
         cpu.p[Flag::Negative] = true;
+        expected.a = 0b00010000;
+        expected.p[Flag::Negative] = false;
         cpu.execute(Op::AND(x));
-        result = cpu.p[Flag::Negative] as u8;
-        assert!(
-            result == expected,
-            "Negative flag not cleared correctly. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "non negative result with negative flag set");
     }
 
     #[test]
     fn op_asl() {
         let mut cpu = Cpu::new();
-        let (mut x, mut result, mut expected);
+        let mut expected = Cpu::new();
 
-        // shifts correctly
-        cpu.reset();
-        x = 2u8;
-        expected = 0b00000100;
-        cpu.execute(Op::ASL(&mut x));
-        result = x;
-        assert!(
-            result == expected,
-            "Incorrect value in memory. Expected {}, Result {}",
-            result,
-            expected
-        );
+        // typical
+        cpu.a = 0b00000010;
+        expected.a = 0b00000100;
+        cpu.execute(Op::ASL(&mut cpu.a));
+        assert_eq!(cpu, expected, "typical");
 
-        // sets carry correctly
-        cpu.reset();
-        x = 0b10001000;
-        expected = 1;
-        cpu.execute(Op::ASL(&mut x));
-        result = cpu.p[Flag::Carry] as u8;
-        assert!(
-            result == expected,
-            "Carry flag set incorrectly. Expected {}, Result {}",
-            result,
-            expected
-        );
+        // bit seven set
+        cpu = Cpu::new();
+        expected = Cpu::new();
+        cpu.a = 0b10001000;
+        expected.a = 0b00010000;
+        expected.p[Flag::Carry] = true;
+        cpu.execute(Op::ASL(&mut cpu.a));
+        assert_eq!(cpu, expected, "bit seven set");
 
-        // clears carry correctly
-        cpu.reset();
-        x = 0b01001111;
-        expected = 0;
+        // bit seven clear with carry flag set
+        cpu = Cpu::new();
+        expected = Cpu::new();
+        cpu.a = 0b00001111;
         cpu.p[Flag::Carry] = true;
-        cpu.execute(Op::ASL(&mut x));
-        result = cpu.p[Flag::Carry] as u8;
-        assert!(
-            result == expected,
-            "Carry flag cleared incorrectly. Expected {}, Result {}",
-            result,
-            expected
-        );
+        expected.a = 0b00011110;
+        expected.p[Flag::Carry] = false;
+        cpu.execute(Op::ASL(&mut cpu.a));
+        assert_eq!(cpu, expected, "bit seven clear with carry flag set");
 
-        // sets zero flag correctly
-        cpu.reset();
-        x = 0b10000000;
-        expected = 1;
-        cpu.execute(Op::ASL(&mut x));
-        result = cpu.p[Flag::Zero] as u8;
-        assert!(
-            result == expected,
-            "Zero flag set incorrectly. Expected {}, Result {}",
-            result,
-            expected
-        );
+        // zero result
+        cpu = Cpu::new();
+        expected = Cpu::new();
+        cpu.a = 0;
+        expected.a = 0;
+        expected.p[Flag::Carry] = true;
+        expected.p[Flag::Zero] = true;
+        cpu.execute(Op::ASL(&mut cpu.a));
+        assert_eq!(cpu, expected, "zero result");
 
-        // clears zero flag correctly
-        cpu.reset();
-        x = 0b01001111;
-        expected = 0;
+        // non zero result with zero flag set
+        cpu = Cpu::new();
+        expected = Cpu::new();
+        cpu.a = 0b00001111;
         cpu.p[Flag::Zero] = true;
-        cpu.execute(Op::ASL(&mut x));
-        result = cpu.p[Flag::Zero] as u8;
-        assert!(
-            result == expected,
-            "Zero flag cleared incorrectly. Expected {}, Result {}",
-            result,
-            expected
-        );
+        expected.a = 0b00011110;
+        expected.p[Flag::Zero] = false;
+        cpu.execute(Op::ASL(&mut cpu.a));
+        assert_eq!(cpu, expected, "non zero result with zero flag set");
 
-        // sets negative flag correctly
-        cpu.reset();
-        x = 0b01000001;
-        expected = 1;
-        cpu.execute(Op::ASL(&mut x));
-        result = cpu.p[Flag::Negative] as u8;
-        assert!(
-            result == expected,
-            "Negative flag set incorrectly. Expected {}, Result {}",
-            result,
-            expected
-        );
+        // negative result
+        cpu = Cpu::new();
+        expected = Cpu::new();
+        cpu.a = 0b01000001;
+        expected.a = 0b10000010;
+        expected.p[Flag::Negative] = true;
+        cpu.execute(Op::ASL(&mut cpu.a));
+        assert_eq!(cpu, expected, "negative result");
 
-        // clears negative flag correctly
-        cpu.reset();
-        x = 0b00001111;
-        expected = 0;
+        // non negative result with negative flag set
+        cpu = Cpu::new();
+        expected = Cpu::new();
+        cpu.a = 0b00001111;
         cpu.p[Flag::Negative] = true;
-        cpu.execute(Op::ASL(&mut x));
-        result = cpu.p[Flag::Negative] as u8;
-        assert!(
-            result == expected,
-            "Zero flag cleared incorrectly. Expected {}, Result {}",
-            result,
-            expected
-        );
+        expected.a = 0b00011110;
+        expected.p[Flag::Negative] = false;
+        cpu.execute(Op::ASL(&mut cpu.a));
+        assert_eq!(cpu, expected, "non negative result with negative flag set");
     }
 
     #[test]
@@ -1097,7 +935,7 @@ mod tests {
     fn op_brk() {
         let mut cpu = Cpu::new();
         let (mut result, mut expected);
-        
+
         // stack contains correct values
         cpu.reset();
         cpu.pc = 0x2345;
@@ -1108,7 +946,7 @@ mod tests {
         assert!(
             result == expected,
             "First byte incorrect. Result {}, Expected {}",
-            result, 
+            result,
             expected
         );
         expected = 0x23;
@@ -1322,7 +1160,7 @@ mod tests {
             result,
             expected
         );
-        
+
         // sets negative flag correctly
         cpu.reset();
         cpu.a = 0x32;
@@ -1417,7 +1255,7 @@ mod tests {
             result,
             expected
         );
-        
+
         // sets negative flag correctly
         cpu.reset();
         cpu.x = 0x12;
@@ -1512,7 +1350,7 @@ mod tests {
             result,
             expected
         );
-        
+
         // sets negative flag correctly
         cpu.reset();
         cpu.y = 0xf2;
@@ -2086,7 +1924,7 @@ mod tests {
     fn op_jsr() {
         let mut cpu = Cpu::new();
         let (mut addr, mut result, mut expected);
-        
+
         // stack contains correct values
         cpu.reset();
         addr = 0xa2a1;
@@ -2097,7 +1935,7 @@ mod tests {
         assert!(
             result == expected,
             "First byte incorrect. Result {}, Expected {}",
-            result, 
+            result,
             expected
         );
         expected = 0x52;
