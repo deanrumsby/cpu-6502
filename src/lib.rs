@@ -2222,4 +2222,12 @@ mod tests {
     //         expected
     //     );
     // }
+
+    #[test]
+    fn op_nop() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let expected = Cpu::new(TestBus::new());
+        cpu.execute(Op::NOP);
+        assert_eq!(cpu, expected, "state");
+    }
 }
