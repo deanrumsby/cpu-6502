@@ -98,6 +98,7 @@ enum Op {
     LDY(u8),
     LSR(Address),
     NOP,
+    ORA(u8),
 }
 
 enum Flag {
@@ -348,6 +349,11 @@ impl<T: Bus> Cpu<T> {
                 self.p[Flag::Negative] = false;
             }
             Op::NOP => {}
+            Op::ORA(x) => {
+                self.a |= x;
+                self.p[Flag::Zero] = self.a == 0;
+                self.p[Flag::Negative] = (self.a as i8) < 0;
+            }
         }
     }
 }
@@ -2229,5 +2235,39 @@ mod tests {
         let expected = Cpu::new(TestBus::new());
         cpu.execute(Op::NOP);
         assert_eq!(cpu, expected, "state");
+    }
+
+    #[test]
+    fn op_ora() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let mut expected = Cpu::new(TestBus::new());
+        let mut x;
+
+        // typical
+        cpu.a = 0b00110111;
+        x = 0b01000100;
+        expected.a = 0b01110111;
+        cpu.execute(Op::ORA(x));
+        assert_eq!(cpu, expected, "typical");
+
+        // negative
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
+        cpu.a = 0b10101010;
+        x = 0b10101010;
+        expected.a = 0b10101010;
+        expected.p[Flag::Negative] = true;
+        cpu.execute(Op::ORA(x));
+        assert_eq!(cpu, expected, "negative");
+
+        // zero
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
+        cpu.a = 0;
+        x = 0;
+        expected.a = 0;
+        expected.p[Flag::Zero] = true;
+        cpu.execute(Op::ORA(x));
+        assert_eq!(cpu, expected, "zero");
     }
 }
