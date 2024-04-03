@@ -99,6 +99,7 @@ enum Op {
     LSR(Address),
     NOP,
     ORA(u8),
+    PHA,
 }
 
 enum Flag {
@@ -353,6 +354,9 @@ impl<T: Bus> Cpu<T> {
                 self.a |= x;
                 self.p[Flag::Zero] = self.a == 0;
                 self.p[Flag::Negative] = (self.a as i8) < 0;
+            }
+            Op::PHA => {
+                self.stack_push(self.a);
             }
         }
     }
@@ -2269,5 +2273,21 @@ mod tests {
         expected.p[Flag::Zero] = true;
         cpu.execute(Op::ORA(x));
         assert_eq!(cpu, expected, "zero");
+    }
+
+    #[test]
+    fn op_pha() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let mut expected = Cpu::new(TestBus::new());
+
+        cpu.a = 0xae;
+        cpu.execute(Op::PHA);
+        cpu.a = 0x23;
+        cpu.execute(Op::PHA);
+        expected.a = cpu.a;
+        expected.s = 0xfd;
+        expected.bus.memory = [0, 0, 0x23, 0xae];
+        assert_eq!(cpu, expected, "state");
+        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory");
     }
 }
