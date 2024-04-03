@@ -100,6 +100,7 @@ enum Op {
     NOP,
     ORA(u8),
     PHA,
+    PHP,
 }
 
 enum Flag {
@@ -357,6 +358,9 @@ impl<T: Bus> Cpu<T> {
             }
             Op::PHA => {
                 self.stack_push(self.a);
+            }
+            Op::PHP => {
+                self.stack_push(u8::from(self.p));
             }
         }
     }
@@ -2287,6 +2291,24 @@ mod tests {
         expected.a = cpu.a;
         expected.s = 0xfd;
         expected.bus.memory = [0, 0, 0x23, 0xae];
+        assert_eq!(cpu, expected, "state");
+        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory");
+    }
+
+    #[test]
+    fn op_php() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let mut expected = Cpu::new(TestBus::new());
+
+        cpu.p = Flags([false, true, true, true, false, true, true]);
+        cpu.execute(Op::PHP);
+        cpu.p = Flags([false, false, false, false, true, false, true]);
+        cpu.execute(Op::PHP);
+        cpu.p = Flags([false, true, false, false, true, false, true]);
+        cpu.execute(Op::PHP);
+        expected.p = cpu.p;
+        expected.s = 0xfc;
+        expected.bus.memory = [0, 0b01100101, 0b00100101, 0b01111011];
         assert_eq!(cpu, expected, "state");
         assert_eq!(cpu.bus.memory, expected.bus.memory, "memory");
     }
