@@ -103,6 +103,7 @@ enum Op {
     PHP,
     PLA,
     PLP,
+    ROL(Address),
 }
 
 enum Flag {
@@ -371,6 +372,22 @@ impl<T: Bus> Cpu<T> {
             }
             Op::PLP => {
                 self.p = Flags::from(self.stack_pop());
+            }
+            Op::ROL(addr) => {
+                let byte = match addr {
+                    Address::Accumulator => self.a,
+                    Address::Memory(a) => self.bus.read(a),
+                };
+                let bit_seven = 0b10000000 & byte;
+                let bit_zero = self.p[Flag::Carry] as u8;
+                let result = (byte << 1) + bit_zero;
+                match addr {
+                    Address::Accumulator => self.a = result,
+                    Address::Memory(a) => self.bus.write(a, result),
+                };
+                self.p[Flag::Carry] = bit_seven != 0;
+                self.p[Flag::Zero] = result == 0;
+                self.p[Flag::Negative] = (result as i8) < 0;
             }
         }
     }
@@ -2368,5 +2385,38 @@ mod tests {
         expected.s = 0xff;
         expected.p = Flags([false, true, false, true, true, false, false]);
         assert_eq!(cpu, expected, "state 1");
+    }
+
+    #[test]
+    fn op_rol() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let mut expected = Cpu::new(TestBus::new());
+
+        cpu.bus.memory[1] = 0b11101110;
+        expected.bus.memory[1] = 0b11011100;
+        expected.p[Flag::Carry] = true;
+        expected.p[Flag::Negative] = true;
+        cpu.execute(Op::ROL(Address::Memory(1)));
+        assert_eq!(cpu, expected, "state 0");
+        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 0");
+
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
+        cpu.p[Flag::Carry] = true;
+        cpu.bus.memory[2] = 0b00011000;
+        expected.bus.memory[2] = 0b00110001;
+        cpu.execute(Op::ROL(Address::Memory(2)));
+        assert_eq!(cpu, expected, "state 1");
+        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 1");
+
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
+        cpu.a = 0b10000000;
+        expected.a = 0;
+        expected.p[Flag::Zero] = true;
+        expected.p[Flag::Carry] = true;
+        cpu.execute(Op::ROL(Address::Accumulator));
+        assert_eq!(cpu, expected, "state 2");
+        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 2");
     }
 }
