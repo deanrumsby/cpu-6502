@@ -780,400 +780,267 @@ mod tests {
     #[test]
     fn op_beq() {
         let mut cpu = Cpu::new(TestBus::new());
-        let (mut x, mut result, mut expected);
+        let mut expected = Cpu::new(TestBus::new());
+        let mut x;
 
-        // branches when zero flag set
-        cpu.reset();
+        // zero flag set
         x = 0x3102;
-        expected = cpu.pc + x;
+        expected.pc = cpu.pc + x;
         cpu.p[Flag::Zero] = true;
+        expected.p[Flag::Zero] = true;
         cpu.execute(Op::BEQ(x));
-        result = cpu.pc;
-        assert!(
-            result == expected,
-            "Incorrect PC value on branching. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "zero flag set");
 
-        // does not branch when zero flag cleared
-        cpu.reset();
+        // zero flag cleared
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
         x = 0x1111;
-        expected = cpu.pc;
+        expected.pc = cpu.pc;
         cpu.p[Flag::Zero] = false;
         cpu.execute(Op::BEQ(x));
-        result = cpu.pc;
-        assert!(
-            result == expected,
-            "Incorrect PC value on non-branching. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "zero flag cleared");
     }
 
     #[test]
     fn op_bit() {
         let mut cpu = Cpu::new(TestBus::new());
-        let (mut x, mut result, mut expected);
+        let mut expected = Cpu::new(TestBus::new());
+        let mut x;
 
-        // sets zero flag correctly
-        cpu.reset();
+        // zero result
         cpu.a = 0b11001100;
         x = 0b00110011;
-        cpu.p[Flag::Zero] = false;
-        expected = true;
+        expected.a = cpu.a;
+        expected.p[Flag::Zero] = true;
         cpu.execute(Op::BIT(x));
-        result = cpu.p[Flag::Zero];
-        assert!(
-            result == expected,
-            "Incorrect setting of zero flag. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "zero result");
 
-        // clears zero flag correctly
-        cpu.reset();
+        // non-zero result
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
         cpu.a = 0b11011100;
         x = 0b00111111;
+        expected.a = cpu.a;
         cpu.p[Flag::Zero] = true;
-        expected = false;
         cpu.execute(Op::BIT(x));
-        result = cpu.p[Flag::Zero];
-        assert!(
-            result == expected,
-            "Incorrect clearing of zero flag. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "non-zero result");
 
-        // sets negative flag correctly
-        cpu.reset();
+        // bit seven set
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
         cpu.a = 0b01010000;
         x = 0b10110011;
         cpu.p[Flag::Negative] = false;
-        expected = true;
+        expected.a = cpu.a;
+        expected.p[Flag::Negative] = true;
         cpu.execute(Op::BIT(x));
-        result = cpu.p[Flag::Negative];
-        assert!(
-            result == expected,
-            "Incorrect setting of negative flag. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "bit seven set");
 
-        // clears negative flag correctly
-        cpu.reset();
+        // bit seven clear
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
         cpu.a = 0b11011100;
-        x = 0b01111111;
+        x = 0b00111111;
         cpu.p[Flag::Negative] = true;
-        expected = false;
+        expected.a = cpu.a;
         cpu.execute(Op::BIT(x));
-        result = cpu.p[Flag::Negative];
-        assert!(
-            result == expected,
-            "Incorrect clearing of negative flag. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "bit seven clear");
 
-        // sets overflow flag correctly
-        cpu.reset();
+        // bit six set
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
         cpu.a = 0b01010000;
         x = 0b01010011;
         cpu.p[Flag::Overflow] = false;
-        expected = true;
+        expected.a = cpu.a;
+        expected.p[Flag::Overflow] = true;
         cpu.execute(Op::BIT(x));
-        result = cpu.p[Flag::Overflow];
-        assert!(
-            result == expected,
-            "Incorrect setting of overflow flag. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "bit six set");
 
-        // clears overflow flag correctly
-        cpu.reset();
+        // bit six clear
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
         cpu.a = 0b11011100;
-        x = 0b10111111;
+        x = 0b00111111;
         cpu.p[Flag::Overflow] = true;
-        expected = false;
+        expected.a = cpu.a;
         cpu.execute(Op::BIT(x));
-        result = cpu.p[Flag::Overflow];
-        assert!(
-            result == expected,
-            "Incorrect clearing of overflow flag. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "bit six clear");
     }
 
     #[test]
     fn op_bmi() {
         let mut cpu = Cpu::new(TestBus::new());
-        let (mut x, mut result, mut expected);
+        let mut expected = Cpu::new(TestBus::new());
+        let mut x;
 
-        // branches when negative flag set
-        cpu.reset();
+        // negative flag set
         x = 0x3456;
-        expected = cpu.pc + x;
+        expected.pc = cpu.pc + x;
+        expected.p[Flag::Negative] = true;
         cpu.p[Flag::Negative] = true;
         cpu.execute(Op::BMI(x));
-        result = cpu.pc;
-        assert!(
-            result == expected,
-            "Incorrect PC value on branching. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "negative flag set");
 
-        // does not branch when negative flag clear
-        cpu.reset();
+        // negative flag clear
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
         x = 0x2238;
-        expected = cpu.pc;
+        expected.pc = cpu.pc;
         cpu.p[Flag::Negative] = false;
         cpu.execute(Op::BMI(x));
-        result = cpu.pc;
-        assert!(
-            result == expected,
-            "Incorrect PC value on non-branching. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "negative flag clear");
     }
 
     #[test]
     fn op_bne() {
         let mut cpu = Cpu::new(TestBus::new());
-        let (mut x, mut result, mut expected);
+        let mut expected = Cpu::new(TestBus::new());
+        let mut x;
 
-        // branches when zero flag clear
-        cpu.reset();
+        // zero flag clear
         x = 0x1234;
-        expected = cpu.pc + x;
+        expected.pc = cpu.pc + x;
         cpu.p[Flag::Zero] = false;
         cpu.execute(Op::BNE(x));
-        result = cpu.pc;
-        assert!(
-            result == expected,
-            "Incorrect PC value on branching. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "zero flag clear");
 
-        // does not branch when zero flag set
-        cpu.reset();
+        // zero flag set
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
         x = 0x1111;
-        expected = cpu.pc;
+        expected.pc = cpu.pc;
         cpu.p[Flag::Zero] = true;
+        expected.p[Flag::Zero] = true;
         cpu.execute(Op::BNE(x));
-        result = cpu.pc;
-        assert!(
-            result == expected,
-            "Incorrect PC value on non-branching. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "zero flag set");
     }
 
     #[test]
     fn op_bpl() {
         let mut cpu = Cpu::new(TestBus::new());
-        let (mut x, mut result, mut expected);
+        let mut expected = Cpu::new(TestBus::new());
+        let mut x;
 
-        // branches when negative flag clear
-        cpu.reset();
+        // negative flag clear
         x = 0x0532;
-        expected = cpu.pc + x;
+        expected.pc = cpu.pc + x;
         cpu.p[Flag::Negative] = false;
         cpu.execute(Op::BPL(x));
-        result = cpu.pc;
-        assert!(
-            result == expected,
-            "Incorrect PC value on branching. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "negative flag clear");
 
-        // does not branch when negative flag set
+        // negative flag set
         cpu.reset();
         x = 0x2222;
-        expected = cpu.pc;
+        expected.pc = cpu.pc;
         cpu.p[Flag::Negative] = true;
+        expected.p[Flag::Negative] = true;
         cpu.execute(Op::BPL(x));
-        result = cpu.pc;
-        assert!(
-            result == expected,
-            "Incorrect PC value on non-branching. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "negative flag set");
     }
 
-    // #[test]
-    // fn op_brk() {
-    //     let mut cpu = Cpu::new(TestBus::new());
-    //     let (mut result, mut expected);
-    //
-    //     // stack contains correct values
-    //     cpu.reset();
-    //     cpu.pc = 0x2345;
-    //     cpu.p = Flags([false, false, true, true, false, true, false]);
-    //     cpu.execute(Op::BRK);
-    //     expected = 0x45;
-    //     result = cpu.stack[0xff];
-    //     assert!(
-    //         result == expected,
-    //         "First byte incorrect. Result {}, Expected {}",
-    //         result,
-    //         expected
-    //     );
-    //     expected = 0x23;
-    //     result = cpu.stack[0xfe];
-    //     assert!(
-    //         result == expected,
-    //         "Second byte incorrect. Result {}, Expected {}",
-    //         result,
-    //         expected
-    //     );
-    //     expected = 0b00111010;
-    //     result = cpu.stack[0xfd];
-    //     assert!(
-    //         result == expected,
-    //         "Third byte incorrect. Result {}, Expected {}",
-    //         result,
-    //         expected
-    //     );
-    // }
+    #[test]
+    fn op_brk() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let mut expected = Cpu::new(TestBus::new());
+
+        cpu.pc = 0x2345;
+        cpu.p = Flags([false, false, true, true, false, true, false]);
+        cpu.execute(Op::BRK);
+        expected.pc = cpu.pc;
+        expected.p = cpu.p;
+        expected.s = 0xfc;
+        expected.bus.memory = [0, 0b00111010, 0x23, 0x45];
+        assert_eq!(cpu, expected, "state");
+        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory");
+    }
 
     #[test]
     fn op_bvc() {
         let mut cpu = Cpu::new(TestBus::new());
-        let (mut x, mut result, mut expected);
+        let mut expected = Cpu::new(TestBus::new());
+        let mut x;
 
-        // branches when overflow cleared
-        cpu.reset();
+        // overflow clear
         x = 0x5555;
-        expected = cpu.pc + x;
+        expected.pc = cpu.pc + x;
         cpu.p[Flag::Overflow] = false;
         cpu.execute(Op::BVC(x));
-        result = cpu.pc;
-        assert!(
-            result == expected,
-            "Incorrect PC value on branching. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "overflow clear");
 
-        // does not branch when overflow set
-        cpu.reset();
+        // overflow set
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
         x = 0x1234;
-        expected = cpu.pc;
+        expected.pc = cpu.pc;
         cpu.p[Flag::Overflow] = true;
+        expected.p[Flag::Overflow] = true;
         cpu.execute(Op::BVC(x));
-        result = cpu.pc;
-        assert!(
-            result == expected,
-            "Incorrect PC value on non-branching. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "overflow set");
     }
+
     #[test]
     fn op_bvs() {
         let mut cpu = Cpu::new(TestBus::new());
-        let (mut x, mut result, mut expected);
+        let mut expected = Cpu::new(TestBus::new());
+        let mut x;
 
-        // branches when overflow set
-        cpu.reset();
+        // overflow set
         x = 0x1155;
-        expected = cpu.pc + x;
+        expected.pc = cpu.pc + x;
         cpu.p[Flag::Overflow] = true;
+        expected.p[Flag::Overflow] = true;
         cpu.execute(Op::BVS(x));
-        result = cpu.pc;
-        assert!(
-            result == expected,
-            "Incorrect PC value on branching. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "overflow set");
 
-        // does not branch when overflow cleared
-        cpu.reset();
+        // overflow clear
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
         x = 0x1122;
-        expected = cpu.pc;
+        expected.pc = cpu.pc;
         cpu.p[Flag::Overflow] = false;
         cpu.execute(Op::BVS(x));
-        result = cpu.pc;
-        assert!(
-            result == expected,
-            "Incorrect PC value on non-branching. Expected {}, Result {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "overflow clear");
     }
 
     #[test]
     fn op_clc() {
         let mut cpu = Cpu::new(TestBus::new());
+        let expected = Cpu::new(TestBus::new());
 
-        let expected = false;
         cpu.p[Flag::Carry] = true;
         cpu.execute(Op::CLC);
-        let result = cpu.p[Flag::Carry];
-        assert!(
-            result == expected,
-            "Carry not cleared correctly. Result {}, Expected {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "state");
     }
 
     #[test]
     fn op_cld() {
         let mut cpu = Cpu::new(TestBus::new());
+        let expected = Cpu::new(TestBus::new());
 
-        let expected = false;
         cpu.p[Flag::Decimal] = true;
         cpu.execute(Op::CLD);
-        let result = cpu.p[Flag::Decimal];
-        assert!(
-            result == expected,
-            "Decimal flag not cleared correctly. Result {}, Expected {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "state");
     }
 
     #[test]
     fn op_cli() {
         let mut cpu = Cpu::new(TestBus::new());
+        let expected = Cpu::new(TestBus::new());
 
-        let expected = false;
         cpu.p[Flag::InterruptDisable] = true;
         cpu.execute(Op::CLI);
-        let result = cpu.p[Flag::InterruptDisable];
-        assert!(
-            result == expected,
-            "Interrupt disable flag not cleared correctly. Result {}, Expected {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "state");
     }
 
     #[test]
     fn op_clv() {
         let mut cpu = Cpu::new(TestBus::new());
+        let expected = Cpu::new(TestBus::new());
 
-        let expected = false;
         cpu.p[Flag::Overflow] = true;
         cpu.execute(Op::CLV);
-        let result = cpu.p[Flag::Overflow];
-        assert!(
-            result == expected,
-            "Overflow flag not cleared correctly. Result {}, Expected {}",
-            result,
-            expected
-        );
+        assert_eq!(cpu, expected, "state");
     }
 
     #[test]
