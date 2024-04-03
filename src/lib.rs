@@ -101,6 +101,7 @@ enum Op {
     ORA(u8),
     PHA,
     PHP,
+    PLA,
 }
 
 enum Flag {
@@ -361,6 +362,11 @@ impl<T: Bus> Cpu<T> {
             }
             Op::PHP => {
                 self.stack_push(u8::from(self.p));
+            }
+            Op::PLA => {
+                self.a = self.stack_pop();
+                self.p[Flag::Zero] = self.a == 0;
+                self.p[Flag::Negative] = (self.a as i8) < 0;
             }
         }
     }
@@ -2311,5 +2317,35 @@ mod tests {
         expected.bus.memory = [0, 0b01100101, 0b00100101, 0b01111011];
         assert_eq!(cpu, expected, "state");
         assert_eq!(cpu.bus.memory, expected.bus.memory, "memory");
+    }
+
+    #[test]
+    fn op_pla() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let mut expected = Cpu::new(TestBus::new());
+
+        cpu.s = 0xfc;
+        cpu.bus.memory = [0, 0, 0x3a, 0xab];
+        cpu.execute(Op::PLA);
+        expected.s = 0xfd;
+        expected.a = 0;
+        expected.p[Flag::Zero] = true;
+        expected.bus.memory = [0, 0, 0x3a, 0xab];
+        assert_eq!(cpu, expected, "state 0");
+        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 0");
+        cpu.execute(Op::PLA);
+        expected.s = 0xfe;
+        expected.a = 0x3a;
+        expected.p[Flag::Zero] = false;
+        expected.bus.memory = [0, 0, 0x3a, 0xab];
+        assert_eq!(cpu, expected, "state 1");
+        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 1");
+        cpu.execute(Op::PLA);
+        expected.s = 0xff;
+        expected.a = 0xab;
+        expected.p[Flag::Negative] = true;
+        expected.bus.memory = [0, 0, 0x3a, 0xab];
+        assert_eq!(cpu, expected, "state 2");
+        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 2");
     }
 }
