@@ -102,6 +102,7 @@ enum Op {
     PHA,
     PHP,
     PLA,
+    PLP,
 }
 
 enum Flag {
@@ -367,6 +368,9 @@ impl<T: Bus> Cpu<T> {
                 self.a = self.stack_pop();
                 self.p[Flag::Zero] = self.a == 0;
                 self.p[Flag::Negative] = (self.a as i8) < 0;
+            }
+            Op::PLP => {
+                self.p = Flags::from(self.stack_pop());
             }
         }
     }
@@ -2347,5 +2351,22 @@ mod tests {
         expected.bus.memory = [0, 0, 0x3a, 0xab];
         assert_eq!(cpu, expected, "state 2");
         assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 2");
+    }
+
+    #[test]
+    fn op_plp() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let mut expected = Cpu::new(TestBus::new());
+
+        cpu.s = 0xfd;
+        cpu.bus.memory = [0, 0, 0b11100000, 0b01101100];
+        cpu.execute(Op::PLP);
+        expected.s = 0xfe;
+        expected.p = Flags([true, true, false, false, false, false, false]);
+        assert_eq!(cpu, expected, "state 0");
+        cpu.execute(Op::PLP);
+        expected.s = 0xff;
+        expected.p = Flags([false, true, false, true, true, false, false]);
+        assert_eq!(cpu, expected, "state 1");
     }
 }
