@@ -229,6 +229,8 @@ impl<T: Bus> Cpu<T> {
                 self.stack_push(pc[0]);
                 self.stack_push(pc[1]);
                 self.stack_push(u8::from(self.p));
+                self.pc = 0xfffe;
+                self.p[Flag::Break] = true;
             }
             Op::BVC(x) => {
                 if !self.p[Flag::Overflow] {
@@ -1005,8 +1007,9 @@ mod tests {
         cpu.pc = 0x2345;
         cpu.p = Flags([false, false, true, true, false, true, false]);
         cpu.execute(Op::BRK);
-        expected.pc = cpu.pc;
+        expected.pc = 0xfffe;
         expected.p = cpu.p;
+        expected.p[Flag::Break] = true;
         expected.s = 0xfc;
         expected.bus.memory = [0, 0b00111010, 0x23, 0x45];
         assert_eq!(cpu, expected, "state");
