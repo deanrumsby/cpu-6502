@@ -105,6 +105,7 @@ enum Op {
     PLP,
     ROL(Address),
     ROR(Address),
+    RTI,
 }
 
 enum Flag {
@@ -407,6 +408,10 @@ impl<T: Bus> Cpu<T> {
                 self.p[Flag::Carry] = bit_zero != 0;
                 self.p[Flag::Zero] = result == 0;
                 self.p[Flag::Negative] = (result as i8) < 0;
+            }
+            Op::RTI => {
+                self.p = Flags::from(self.stack_pop());
+                self.pc = u16::from_be_bytes([self.stack_pop(), self.stack_pop()]);
             }
         }
     }
@@ -2470,5 +2475,18 @@ mod tests {
         cpu.execute(Op::ROR(Address::Accumulator));
         assert_eq!(cpu, expected, "state 2");
         assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 2");
+    }
+
+    #[test]
+    fn op_rti() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let mut expected = Cpu::new(TestBus::new());
+
+        cpu.s = 0xfc;
+        cpu.bus.memory = [0, 0b01101100, 0x32, 0x1f];
+        cpu.execute(Op::RTI);
+        expected.pc = 0x321f;
+        expected.p = Flags([false, true, false, true, true, false, false]);
+        assert_eq!(cpu, expected, "state");
     }
 }
