@@ -106,6 +106,7 @@ enum Op {
     ROL(Address),
     ROR(Address),
     RTI,
+    RTS,
 }
 
 enum Flag {
@@ -411,6 +412,9 @@ impl<T: Bus> Cpu<T> {
             }
             Op::RTI => {
                 self.p = Flags::from(self.stack_pop());
+                self.pc = u16::from_be_bytes([self.stack_pop(), self.stack_pop()]);
+            }
+            Op::RTS => {
                 self.pc = u16::from_be_bytes([self.stack_pop(), self.stack_pop()]);
             }
         }
@@ -2487,6 +2491,18 @@ mod tests {
         cpu.execute(Op::RTI);
         expected.pc = 0x321f;
         expected.p = Flags([false, true, false, true, true, false, false]);
+        assert_eq!(cpu, expected, "state");
+    }
+
+    #[test]
+    fn op_rts() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let mut expected = Cpu::new(TestBus::new());
+
+        cpu.s = 0xfd;
+        cpu.bus.memory = [0, 0, 0x12, 0x34];
+        cpu.execute(Op::RTS);
+        expected.pc = 0x1234;
         assert_eq!(cpu, expected, "state");
     }
 }
