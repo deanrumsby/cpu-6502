@@ -1,3 +1,5 @@
+#![feature(bigint_helper_methods)]
+
 use std::convert::From;
 use std::fmt;
 use std::ops::{Index, IndexMut};
@@ -156,10 +158,9 @@ impl<T: Bus> Cpu<T> {
     fn execute(&mut self, op: Op) {
         match op {
             Op::ADC(x) => {
-                let carry = self.p[Flag::Carry] as u8;
-                let (unsigned_result, has_carried) = self.a.overflowing_add(x + carry);
-                let (signed_result, has_overflowed) =
-                    (self.a as i8).overflowing_add_unsigned(x + carry);
+                let carry = self.p[Flag::Carry];
+                let (unsigned_result, has_carried) = self.a.carrying_add(x, carry);
+                let (signed_result, has_overflowed) = (self.a as i8).carrying_add(x as i8, carry);
                 self.a = unsigned_result;
                 self.p[Flag::Negative] = signed_result < 0;
                 self.p[Flag::Overflow] = has_overflowed;
