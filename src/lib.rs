@@ -6,17 +6,17 @@ use std::ops::{Index, IndexMut};
 #[derive(Copy, Clone, PartialEq)]
 pub struct Flags([bool; 7]);
 
-pub struct Cpu<T: Bus> {
+pub struct Cpu<T: MemoryMap> {
     pub pc: u16,
     pub a: u8,
     pub x: u8,
     pub y: u8,
     pub s: u8,
     pub p: Flags,
-    pub bus: T,
+    pub map: T,
 }
 
-impl<T: Bus> PartialEq for Cpu<T> {
+impl<T: MemoryMap> PartialEq for Cpu<T> {
     fn eq(&self, other: &Self) -> bool {
         self.pc == other.pc
             && self.a == other.a
@@ -27,7 +27,7 @@ impl<T: Bus> PartialEq for Cpu<T> {
     }
 }
 
-impl<T: Bus> fmt::Debug for Cpu<T> {
+impl<T: MemoryMap> fmt::Debug for Cpu<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Cpu")
             .field("pc", &format_args!("{:x}", &self.pc))
@@ -54,11 +54,12 @@ impl fmt::Debug for Flags {
     }
 }
 
-pub trait Bus {
-    fn read(&self, addr: u16) -> u8;
-    fn write(&mut self, addr: u16, byte: u8);
+pub trait MemoryMap {
+    fn ptr(&self, addr: u16) -> &u8;
+    fn mut_ptr(&mut self, addr: u16) -> &mut u8;
 }
 
+#[derive(Copy, Clone)]
 enum Address {
     Accumulator,
     Memory(u16),
@@ -125,8 +126,8 @@ enum Flag {
     Carry,
 }
 
-impl<T: Bus> Cpu<T> {
-    pub fn new(bus: T) -> Self {
+impl<T: MemoryMap> Cpu<T> {
+    pub fn new(map: T) -> Self {
         Self {
             pc: 0,
             a: 0,
@@ -134,7 +135,7 @@ impl<T: Bus> Cpu<T> {
             y: 0,
             s: 0xff,
             p: Flags([false; 7]), // N,V,B,D,I,Z,C
-            bus,
+            map,
         }
     }
 
@@ -149,14 +150,14 @@ impl<T: Bus> Cpu<T> {
 
     fn stack_push(&mut self, byte: u8) {
         let addr = 0x0100u16 + (self.s as u16);
-        self.bus.write(addr, byte);
+        *self.map.mut_ptr(addr) = byte;
         self.s = self.s.wrapping_sub(1);
     }
 
     fn stack_pop(&mut self) -> u8 {
         self.s = self.s.wrapping_add(1);
         let addr = 0x0100u16 + (self.s as u16);
-        self.bus.read(addr)
+        *self.map.ptr(addr)
     }
 
     fn execute(&mut self, op: Op) {
@@ -179,17 +180,11 @@ impl<T: Bus> Cpu<T> {
                 self.p[Flag::Negative] = signed_result < 0;
             }
             Op::ASL(addr) => {
-                let byte = match addr {
-                    Address::Accumulator => self.a,
-                    Address::Memory(a) => self.bus.read(a),
-                };
+                let byte = self[addr];
                 let bit_seven = (byte & 0b10000000) >> 7;
                 let unsigned_result = byte << 1;
                 let signed_result = unsigned_result as i8;
-                match addr {
-                    Address::Accumulator => self.a = unsigned_result,
-                    Address::Memory(a) => self.bus.write(a, unsigned_result),
-                };
+                self[addr] = unsigned_result;
                 self.p[Flag::Carry] = bit_seven != 0;
                 self.p[Flag::Zero] = unsigned_result == 0;
                 self.p[Flag::Negative] = signed_result < 0;
@@ -280,12 +275,8 @@ impl<T: Bus> Cpu<T> {
                 self.p[Flag::Negative] = (result as i8) < 0;
             }
             Op::DEC(addr) => {
-                let addr = match addr {
-                    Address::Memory(a) => a,
-                    _ => panic!("invalid address"),
-                };
-                let result = self.bus.read(addr).wrapping_sub(1);
-                self.bus.write(addr, result);
+                let result = self[addr].wrapping_sub(1);
+                self[addr] = result;
                 self.p[Flag::Zero] = result == 0;
                 self.p[Flag::Negative] = (result as i8) < 0;
             }
@@ -305,12 +296,8 @@ impl<T: Bus> Cpu<T> {
                 self.p[Flag::Negative] = (self.a as i8) < 0;
             }
             Op::INC(addr) => {
-                let addr = match addr {
-                    Address::Memory(a) => a,
-                    _ => panic!("invalid address"),
-                };
-                let result = self.bus.read(addr).wrapping_add(1);
-                self.bus.write(addr, result);
+                let result = self[addr].wrapping_add(1);
+                self[addr] = result;
                 self.p[Flag::Zero] = result == 0;
                 self.p[Flag::Negative] = (result as i8) < 0;
             }
@@ -349,16 +336,10 @@ impl<T: Bus> Cpu<T> {
                 self.p[Flag::Negative] = (x as i8) < 0;
             }
             Op::LSR(addr) => {
-                let byte = match addr {
-                    Address::Accumulator => self.a,
-                    Address::Memory(a) => self.bus.read(a),
-                };
+                let byte = self[addr];
                 let bit_zero = byte & 0b00000001;
                 let result = byte >> 1;
-                match addr {
-                    Address::Accumulator => self.a = result,
-                    Address::Memory(a) => self.bus.write(a, result),
-                }
+                self[addr] = result;
                 self.p[Flag::Carry] = bit_zero != 0;
                 self.p[Flag::Zero] = result == 0;
                 self.p[Flag::Negative] = false;
@@ -384,33 +365,21 @@ impl<T: Bus> Cpu<T> {
                 self.p = Flags::from(self.stack_pop());
             }
             Op::ROL(addr) => {
-                let byte = match addr {
-                    Address::Accumulator => self.a,
-                    Address::Memory(a) => self.bus.read(a),
-                };
+                let byte = self[addr];
                 let bit_seven = 0b10000000 & byte;
                 let bit_zero = self.p[Flag::Carry] as u8;
                 let result = (byte << 1) + bit_zero;
-                match addr {
-                    Address::Accumulator => self.a = result,
-                    Address::Memory(a) => self.bus.write(a, result),
-                };
+                self[addr] = result;
                 self.p[Flag::Carry] = bit_seven != 0;
                 self.p[Flag::Zero] = result == 0;
                 self.p[Flag::Negative] = (result as i8) < 0;
             }
             Op::ROR(addr) => {
-                let byte = match addr {
-                    Address::Accumulator => self.a,
-                    Address::Memory(a) => self.bus.read(a),
-                };
+                let byte = self[addr];
                 let bit_zero = 0b00000001 & byte;
                 let bit_seven = self.p[Flag::Carry] as u8;
                 let result = (byte >> 1) + bit_seven * 128;
-                match addr {
-                    Address::Accumulator => self.a = result,
-                    Address::Memory(a) => self.bus.write(a, result),
-                };
+                self[addr] = result;
                 self.p[Flag::Carry] = bit_zero != 0;
                 self.p[Flag::Zero] = result == 0;
                 self.p[Flag::Negative] = (result as i8) < 0;
@@ -443,13 +412,28 @@ impl<T: Bus> Cpu<T> {
                 self.p[Flag::InterruptDisable] = true;
             }
             Op::STA(addr) => {
-                match addr {
-                    Address::Accumulator => {}
-                    Address::Memory(a) => {
-                        self.bus.write(a, self.a);
-                    }
-                };
+                self[addr] = self.a;
             }
+        }
+    }
+}
+
+impl<T: MemoryMap> Index<Address> for Cpu<T> {
+    type Output = u8;
+
+    fn index(&self, addr: Address) -> &Self::Output {
+        match addr {
+            Address::Accumulator => &self.a,
+            Address::Memory(a) => &self.map.ptr(a),
+        }
+    }
+}
+
+impl<T: MemoryMap> IndexMut<Address> for Cpu<T> {
+    fn index_mut(&mut self, addr: Address) -> &mut Self::Output {
+        match addr {
+            Address::Accumulator => &mut self.a,
+            Address::Memory(a) => self.map.mut_ptr(a),
         }
     }
 }
@@ -500,23 +484,23 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[derive(Debug, PartialEq)]
-    struct TestBus {
+    struct TestMap {
         memory: [u8; 4],
     }
 
-    impl TestBus {
+    impl TestMap {
         pub fn new() -> Self {
             Self { memory: [0; 4] }
         }
     }
 
-    impl Bus for TestBus {
-        fn read(&self, addr: u16) -> u8 {
-            self.memory[(addr as usize) % self.memory.len()]
+    impl MemoryMap for TestMap {
+        fn ptr(&self, addr: u16) -> &u8 {
+            &self.memory[(addr as usize) % self.memory.len()]
         }
 
-        fn write(&mut self, addr: u16, byte: u8) {
-            self.memory[(addr as usize) % self.memory.len()] = byte;
+        fn mut_ptr(&mut self, addr: u16) -> &mut u8 {
+            &mut self.memory[(addr as usize) % self.memory.len()]
         }
     }
 
@@ -569,39 +553,39 @@ mod tests {
     #[test]
     fn stack_push() {
         // typical case
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         let (x0, x1) = (0x55, 0xf2);
         cpu.stack_push(x0);
         cpu.stack_push(x1);
         expected.s = 0xfd;
-        expected.bus.memory = [0, 0, x1, x0];
+        expected.map.memory = [0, 0, x1, x0];
         assert_eq!(cpu, expected, "typical case");
-        assert_eq!(cpu.bus.memory, expected.bus.memory, "typical case - memory");
+        assert_eq!(cpu.map.memory, expected.map.memory, "typical case - memory");
 
         // stack pointer overflow
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.stack_pop();
         expected.s = 0;
         assert_eq!(cpu, expected);
 
         // stack pointer underflow
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         let x = 0x23;
         cpu.s = 0;
         cpu.stack_push(x);
         expected.s = 0xff;
-        expected.bus.memory = [x, 0, 0, 0];
+        expected.map.memory = [x, 0, 0, 0];
         assert_eq!(cpu, expected);
-        assert_eq!(cpu.bus.memory, expected.bus.memory);
+        assert_eq!(cpu.map.memory, expected.map.memory);
     }
 
     #[test]
     fn op_adc() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         let mut x;
 
         // no carry bit
@@ -612,8 +596,8 @@ mod tests {
         assert_eq!(cpu, expected, "no carry bit");
 
         // with carry bit
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.p[Flag::Carry] = true;
         x = 0x12;
         cpu.a = 0x15;
@@ -622,8 +606,8 @@ mod tests {
         assert_eq!(cpu, expected, "with carry bit");
 
         // unsigned overflow
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 0x5;
         cpu.a = 0xff;
         expected.a = x.wrapping_add(cpu.a);
@@ -632,8 +616,8 @@ mod tests {
         assert_eq!(cpu, expected, "unsigned overflow");
 
         // non overflowing with carry set
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 0x5;
         cpu.a = 0x54;
         expected.a = x + cpu.a + 1;
@@ -642,8 +626,8 @@ mod tests {
         assert_eq!(cpu, expected, "non overflowing with carry set");
 
         // signed overflow
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 1;
         cpu.a = 127;
         expected.a = x + cpu.a;
@@ -653,8 +637,8 @@ mod tests {
         assert_eq!(cpu, expected, "signed overflow");
 
         // signed non overflow with overflow set
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 1;
         cpu.a = 126;
         expected.a = x + cpu.a;
@@ -663,8 +647,8 @@ mod tests {
         assert_eq!(cpu, expected, "signed non overflow with overflow set");
 
         // negative result
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 5;
         cpu.a = 10u8.wrapping_neg();
         expected.a = x + cpu.a;
@@ -673,8 +657,8 @@ mod tests {
         assert_eq!(cpu, expected, "negative result");
 
         // positive result with negative flag set
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 12;
         cpu.a = 10u8.wrapping_neg();
         expected.a = x.wrapping_add(cpu.a);
@@ -684,8 +668,8 @@ mod tests {
         assert_eq!(cpu, expected, "positive result with negative flag set");
 
         // zero result
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 10;
         cpu.a = 10u8.wrapping_neg();
         expected.a = x.wrapping_add(cpu.a);
@@ -695,8 +679,8 @@ mod tests {
         assert_eq!(cpu, expected, "zero result");
 
         // non zero result with zero flag set
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 12;
         cpu.a = 6;
         expected.a = x + cpu.a;
@@ -707,8 +691,8 @@ mod tests {
 
     #[test]
     fn op_and() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         let mut x;
 
         // typical
@@ -719,8 +703,8 @@ mod tests {
         assert_eq!(cpu, expected, "typical");
 
         // zero result
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 0b01010101;
         cpu.a = 0b10101010;
         expected.a = 0;
@@ -729,8 +713,8 @@ mod tests {
         assert_eq!(cpu, expected, "zero result");
 
         // non zero result with zero flag set
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 0b01010101;
         cpu.a = 0b10111010;
         cpu.p[Flag::Zero] = true;
@@ -740,8 +724,8 @@ mod tests {
         assert_eq!(cpu, expected, "non zero result with zero flag set");
 
         // negative result
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 0b11010101;
         cpu.a = 0b10101010;
         expected.a = 0b10000000;
@@ -750,8 +734,8 @@ mod tests {
         assert_eq!(cpu, expected, "negative result");
 
         // non negative result with negative flag set
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 0b01010101;
         cpu.a = 0b10111010;
         cpu.p[Flag::Negative] = true;
@@ -763,8 +747,8 @@ mod tests {
 
     #[test]
     fn op_asl() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
 
         // typical
         cpu.a = 0b00000010;
@@ -773,8 +757,8 @@ mod tests {
         assert_eq!(cpu, expected, "typical");
 
         // bit seven set
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 0b10001000;
         expected.a = 0b00010000;
         expected.p[Flag::Carry] = true;
@@ -782,8 +766,8 @@ mod tests {
         assert_eq!(cpu, expected, "bit seven set");
 
         // bit seven clear with carry flag set
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 0b00001111;
         cpu.p[Flag::Carry] = true;
         expected.a = 0b00011110;
@@ -792,8 +776,8 @@ mod tests {
         assert_eq!(cpu, expected, "bit seven clear with carry flag set");
 
         // zero result
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 0;
         expected.a = 0;
         expected.p[Flag::Zero] = true;
@@ -801,8 +785,8 @@ mod tests {
         assert_eq!(cpu, expected, "zero result");
 
         // non zero result with zero flag set
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 0b00001111;
         cpu.p[Flag::Zero] = true;
         expected.a = 0b00011110;
@@ -811,8 +795,8 @@ mod tests {
         assert_eq!(cpu, expected, "non zero result with zero flag set");
 
         // negative result
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 0b01000001;
         expected.a = 0b10000010;
         expected.p[Flag::Negative] = true;
@@ -820,8 +804,8 @@ mod tests {
         assert_eq!(cpu, expected, "negative result");
 
         // non negative result with negative flag set
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 0b00001111;
         cpu.p[Flag::Negative] = true;
         expected.a = 0b00011110;
@@ -832,8 +816,8 @@ mod tests {
 
     #[test]
     fn op_bcc() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         let mut x;
 
         // carry cleared
@@ -844,8 +828,8 @@ mod tests {
         assert_eq!(cpu, expected, "carry cleared");
 
         // carry set
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 0x2232;
         cpu.p[Flag::Carry] = true;
         expected.pc = cpu.pc;
@@ -856,8 +840,8 @@ mod tests {
 
     #[test]
     fn op_bcs() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         let mut x;
 
         // carry set
@@ -869,8 +853,8 @@ mod tests {
         assert_eq!(cpu, expected, "carry set");
 
         // carry cleared
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 0x2211;
         expected.pc = cpu.pc;
         cpu.p[Flag::Carry] = false;
@@ -881,8 +865,8 @@ mod tests {
 
     #[test]
     fn op_beq() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         let mut x;
 
         // zero flag set
@@ -894,8 +878,8 @@ mod tests {
         assert_eq!(cpu, expected, "zero flag set");
 
         // zero flag cleared
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 0x1111;
         expected.pc = cpu.pc;
         cpu.p[Flag::Zero] = false;
@@ -905,8 +889,8 @@ mod tests {
 
     #[test]
     fn op_bit() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         let mut x;
 
         // zero result
@@ -918,8 +902,8 @@ mod tests {
         assert_eq!(cpu, expected, "zero result");
 
         // non-zero result
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 0b11011100;
         x = 0b00111111;
         expected.a = cpu.a;
@@ -928,8 +912,8 @@ mod tests {
         assert_eq!(cpu, expected, "non-zero result");
 
         // bit seven set
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 0b01010000;
         x = 0b10110011;
         cpu.p[Flag::Negative] = false;
@@ -939,8 +923,8 @@ mod tests {
         assert_eq!(cpu, expected, "bit seven set");
 
         // bit seven clear
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 0b11011100;
         x = 0b00111111;
         cpu.p[Flag::Negative] = true;
@@ -949,8 +933,8 @@ mod tests {
         assert_eq!(cpu, expected, "bit seven clear");
 
         // bit six set
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 0b01010000;
         x = 0b01010011;
         cpu.p[Flag::Overflow] = false;
@@ -960,8 +944,8 @@ mod tests {
         assert_eq!(cpu, expected, "bit six set");
 
         // bit six clear
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 0b11011100;
         x = 0b00111111;
         cpu.p[Flag::Overflow] = true;
@@ -972,8 +956,8 @@ mod tests {
 
     #[test]
     fn op_bmi() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         let mut x;
 
         // negative flag set
@@ -985,8 +969,8 @@ mod tests {
         assert_eq!(cpu, expected, "negative flag set");
 
         // negative flag clear
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 0x2238;
         expected.pc = cpu.pc;
         cpu.p[Flag::Negative] = false;
@@ -996,8 +980,8 @@ mod tests {
 
     #[test]
     fn op_bne() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         let mut x;
 
         // zero flag clear
@@ -1008,8 +992,8 @@ mod tests {
         assert_eq!(cpu, expected, "zero flag clear");
 
         // zero flag set
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 0x1111;
         expected.pc = cpu.pc;
         cpu.p[Flag::Zero] = true;
@@ -1020,8 +1004,8 @@ mod tests {
 
     #[test]
     fn op_bpl() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         let mut x;
 
         // negative flag clear
@@ -1043,8 +1027,8 @@ mod tests {
 
     #[test]
     fn op_brk() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
 
         cpu.pc = 0x2345;
         cpu.p = Flags([false, false, true, true, false, true, false]);
@@ -1053,15 +1037,15 @@ mod tests {
         expected.p = cpu.p;
         expected.p[Flag::Break] = true;
         expected.s = 0xfc;
-        expected.bus.memory = [0, 0b00111010, 0x23, 0x45];
+        expected.map.memory = [0, 0b00111010, 0x23, 0x45];
         assert_eq!(cpu, expected, "state");
-        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory");
+        assert_eq!(cpu.map.memory, expected.map.memory, "memory");
     }
 
     #[test]
     fn op_bvc() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         let mut x;
 
         // overflow clear
@@ -1072,8 +1056,8 @@ mod tests {
         assert_eq!(cpu, expected, "overflow clear");
 
         // overflow set
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 0x1234;
         expected.pc = cpu.pc;
         cpu.p[Flag::Overflow] = true;
@@ -1084,8 +1068,8 @@ mod tests {
 
     #[test]
     fn op_bvs() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         let mut x;
 
         // overflow set
@@ -1097,8 +1081,8 @@ mod tests {
         assert_eq!(cpu, expected, "overflow set");
 
         // overflow clear
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         x = 0x1122;
         expected.pc = cpu.pc;
         cpu.p[Flag::Overflow] = false;
@@ -1108,8 +1092,8 @@ mod tests {
 
     #[test]
     fn op_clc() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let expected = Cpu::new(TestMap::new());
 
         cpu.p[Flag::Carry] = true;
         cpu.execute(Op::CLC);
@@ -1118,8 +1102,8 @@ mod tests {
 
     #[test]
     fn op_cld() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let expected = Cpu::new(TestMap::new());
 
         cpu.p[Flag::Decimal] = true;
         cpu.execute(Op::CLD);
@@ -1128,8 +1112,8 @@ mod tests {
 
     #[test]
     fn op_cli() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let expected = Cpu::new(TestMap::new());
 
         cpu.p[Flag::InterruptDisable] = true;
         cpu.execute(Op::CLI);
@@ -1138,8 +1122,8 @@ mod tests {
 
     #[test]
     fn op_clv() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let expected = Cpu::new(TestMap::new());
 
         cpu.p[Flag::Overflow] = true;
         cpu.execute(Op::CLV);
@@ -1148,7 +1132,7 @@ mod tests {
 
     #[test]
     fn op_cmp() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
         let (mut x, mut result, mut expected);
 
         // sets carry flag correctly
@@ -1243,7 +1227,7 @@ mod tests {
 
     #[test]
     fn op_cpx() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
         let (mut x, mut result, mut expected);
 
         // sets carry flag correctly
@@ -1338,7 +1322,7 @@ mod tests {
 
     #[test]
     fn op_cpy() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
         let (mut x, mut result, mut expected);
 
         // sets carry flag correctly
@@ -1433,7 +1417,7 @@ mod tests {
 
     // #[test]
     // fn op_dec() {
-    //     let mut cpu = Cpu::new(TestBus::new());
+    //     let mut cpu = Cpu::new(TestMap::new());
     //     let (mut x, mut result, mut expected);
     //
     //     // value correct
@@ -1506,7 +1490,7 @@ mod tests {
 
     #[test]
     fn op_dex() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
         let (mut result, mut expected);
 
         // value correct
@@ -1579,7 +1563,7 @@ mod tests {
 
     #[test]
     fn op_dey() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
         let (mut result, mut expected);
 
         // value correct
@@ -1652,7 +1636,7 @@ mod tests {
 
     #[test]
     fn op_eor() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
         let (mut x, mut result, mut expected);
 
         // correct value
@@ -1732,7 +1716,7 @@ mod tests {
 
     // #[test]
     // fn op_inc() {
-    //     let mut cpu = Cpu::new(TestBus::new());
+    //     let mut cpu = Cpu::new(TestMap::new());
     //     let (mut x, mut result, mut expected);
     //
     //     // value correct
@@ -1805,7 +1789,7 @@ mod tests {
 
     #[test]
     fn op_inx() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
         let (mut result, mut expected);
 
         // value correct
@@ -1878,7 +1862,7 @@ mod tests {
 
     #[test]
     fn op_iny() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
         let (mut result, mut expected);
 
         // value correct
@@ -1951,7 +1935,7 @@ mod tests {
 
     #[test]
     fn op_jmp() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
         let (addr, result, expected);
 
         // correct value
@@ -1971,7 +1955,7 @@ mod tests {
 
     // #[test]
     // fn op_jsr() {
-    //     let mut cpu = Cpu::new(TestBus::new());
+    //     let mut cpu = Cpu::new(TestMap::new());
     //     let (mut addr, mut result, mut expected);
     //
     //     // stack contains correct values
@@ -2013,7 +1997,7 @@ mod tests {
 
     #[test]
     fn op_lda() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
         let (mut x, mut result, mut expected);
 
         // loads correctly
@@ -2089,7 +2073,7 @@ mod tests {
 
     #[test]
     fn op_ldx() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
         let (mut x, mut result, mut expected);
 
         // loads correctly
@@ -2165,7 +2149,7 @@ mod tests {
 
     #[test]
     fn op_ldy() {
-        let mut cpu = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
         let (mut x, mut result, mut expected);
 
         // loads correctly
@@ -2241,7 +2225,7 @@ mod tests {
 
     // #[test]
     // fn op_lsr() {
-    //     let mut cpu = Cpu::new(TestBus::new());
+    //     let mut cpu = Cpu::new(TestMap::new());
     //     let (mut x, mut result, mut expected);
     //
     //     // correct value
@@ -2328,16 +2312,16 @@ mod tests {
 
     #[test]
     fn op_nop() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let expected = Cpu::new(TestMap::new());
         cpu.execute(Op::NOP);
         assert_eq!(cpu, expected, "state");
     }
 
     #[test]
     fn op_ora() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         let mut x;
 
         // typical
@@ -2348,8 +2332,8 @@ mod tests {
         assert_eq!(cpu, expected, "typical");
 
         // negative
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 0b10101010;
         x = 0b10101010;
         expected.a = 0b10101010;
@@ -2358,8 +2342,8 @@ mod tests {
         assert_eq!(cpu, expected, "negative");
 
         // zero
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 0;
         x = 0;
         expected.a = 0;
@@ -2370,8 +2354,8 @@ mod tests {
 
     #[test]
     fn op_pha() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
 
         cpu.a = 0xae;
         cpu.execute(Op::PHA);
@@ -2379,15 +2363,15 @@ mod tests {
         cpu.execute(Op::PHA);
         expected.a = cpu.a;
         expected.s = 0xfd;
-        expected.bus.memory = [0, 0, 0x23, 0xae];
+        expected.map.memory = [0, 0, 0x23, 0xae];
         assert_eq!(cpu, expected, "state");
-        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory");
+        assert_eq!(cpu.map.memory, expected.map.memory, "memory");
     }
 
     #[test]
     fn op_php() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
 
         cpu.p = Flags([false, true, true, true, false, true, true]);
         cpu.execute(Op::PHP);
@@ -2397,48 +2381,48 @@ mod tests {
         cpu.execute(Op::PHP);
         expected.p = cpu.p;
         expected.s = 0xfc;
-        expected.bus.memory = [0, 0b01100101, 0b00100101, 0b01111011];
+        expected.map.memory = [0, 0b01100101, 0b00100101, 0b01111011];
         assert_eq!(cpu, expected, "state");
-        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory");
+        assert_eq!(cpu.map.memory, expected.map.memory, "memory");
     }
 
     #[test]
     fn op_pla() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
 
         cpu.s = 0xfc;
-        cpu.bus.memory = [0, 0, 0x3a, 0xab];
+        cpu.map.memory = [0, 0, 0x3a, 0xab];
         cpu.execute(Op::PLA);
         expected.s = 0xfd;
         expected.a = 0;
         expected.p[Flag::Zero] = true;
-        expected.bus.memory = [0, 0, 0x3a, 0xab];
+        expected.map.memory = [0, 0, 0x3a, 0xab];
         assert_eq!(cpu, expected, "state 0");
-        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 0");
+        assert_eq!(cpu.map.memory, expected.map.memory, "memory 0");
         cpu.execute(Op::PLA);
         expected.s = 0xfe;
         expected.a = 0x3a;
         expected.p[Flag::Zero] = false;
-        expected.bus.memory = [0, 0, 0x3a, 0xab];
+        expected.map.memory = [0, 0, 0x3a, 0xab];
         assert_eq!(cpu, expected, "state 1");
-        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 1");
+        assert_eq!(cpu.map.memory, expected.map.memory, "memory 1");
         cpu.execute(Op::PLA);
         expected.s = 0xff;
         expected.a = 0xab;
         expected.p[Flag::Negative] = true;
-        expected.bus.memory = [0, 0, 0x3a, 0xab];
+        expected.map.memory = [0, 0, 0x3a, 0xab];
         assert_eq!(cpu, expected, "state 2");
-        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 2");
+        assert_eq!(cpu.map.memory, expected.map.memory, "memory 2");
     }
 
     #[test]
     fn op_plp() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
 
         cpu.s = 0xfd;
-        cpu.bus.memory = [0, 0, 0b11100000, 0b01101100];
+        cpu.map.memory = [0, 0, 0b11100000, 0b01101100];
         cpu.execute(Op::PLP);
         expected.s = 0xfe;
         expected.p = Flags([true, true, false, false, false, false, false]);
@@ -2451,76 +2435,76 @@ mod tests {
 
     #[test]
     fn op_rol() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
 
-        cpu.bus.memory[1] = 0b11101110;
-        expected.bus.memory[1] = 0b11011100;
+        cpu.map.memory[1] = 0b11101110;
+        expected.map.memory[1] = 0b11011100;
         expected.p[Flag::Carry] = true;
         expected.p[Flag::Negative] = true;
         cpu.execute(Op::ROL(Address::Memory(1)));
         assert_eq!(cpu, expected, "state 0");
-        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 0");
+        assert_eq!(cpu.map.memory, expected.map.memory, "memory 0");
 
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.p[Flag::Carry] = true;
-        cpu.bus.memory[2] = 0b00011000;
-        expected.bus.memory[2] = 0b00110001;
+        cpu.map.memory[2] = 0b00011000;
+        expected.map.memory[2] = 0b00110001;
         cpu.execute(Op::ROL(Address::Memory(2)));
         assert_eq!(cpu, expected, "state 1");
-        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 1");
+        assert_eq!(cpu.map.memory, expected.map.memory, "memory 1");
 
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 0b10000000;
         expected.a = 0;
         expected.p[Flag::Zero] = true;
         expected.p[Flag::Carry] = true;
         cpu.execute(Op::ROL(Address::Accumulator));
         assert_eq!(cpu, expected, "state 2");
-        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 2");
+        assert_eq!(cpu.map.memory, expected.map.memory, "memory 2");
     }
 
     #[test]
     fn op_ror() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
 
-        cpu.bus.memory[1] = 0b11101110;
-        expected.bus.memory[1] = 0b01110111;
+        cpu.map.memory[1] = 0b11101110;
+        expected.map.memory[1] = 0b01110111;
         cpu.execute(Op::ROR(Address::Memory(1)));
         assert_eq!(cpu, expected, "state 0");
-        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 0");
+        assert_eq!(cpu.map.memory, expected.map.memory, "memory 0");
 
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.p[Flag::Carry] = true;
-        cpu.bus.memory[2] = 0b00011000;
-        expected.bus.memory[2] = 0b10001100;
+        cpu.map.memory[2] = 0b00011000;
+        expected.map.memory[2] = 0b10001100;
         expected.p[Flag::Negative] = true;
         cpu.execute(Op::ROR(Address::Memory(2)));
         assert_eq!(cpu, expected, "state 1");
-        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 1");
+        assert_eq!(cpu.map.memory, expected.map.memory, "memory 1");
 
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 0b00000001;
         expected.a = 0;
         expected.p[Flag::Zero] = true;
         expected.p[Flag::Carry] = true;
         cpu.execute(Op::ROR(Address::Accumulator));
         assert_eq!(cpu, expected, "state 2");
-        assert_eq!(cpu.bus.memory, expected.bus.memory, "memory 2");
+        assert_eq!(cpu.map.memory, expected.map.memory, "memory 2");
     }
 
     #[test]
     fn op_rti() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
 
         cpu.s = 0xfc;
-        cpu.bus.memory = [0, 0b01101100, 0x32, 0x1f];
+        cpu.map.memory = [0, 0b01101100, 0x32, 0x1f];
         cpu.execute(Op::RTI);
         expected.pc = 0x321f;
         expected.p = Flags([false, true, false, true, true, false, false]);
@@ -2529,11 +2513,11 @@ mod tests {
 
     #[test]
     fn op_rts() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
 
         cpu.s = 0xfd;
-        cpu.bus.memory = [0, 0, 0x12, 0x34];
+        cpu.map.memory = [0, 0, 0x12, 0x34];
         cpu.execute(Op::RTS);
         expected.pc = 0x1234;
         assert_eq!(cpu, expected, "state");
@@ -2541,8 +2525,8 @@ mod tests {
 
     #[test]
     fn op_sbc() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         let mut x;
 
         // no carry bit
@@ -2554,8 +2538,8 @@ mod tests {
         assert_eq!(cpu, expected, "no carry bit");
 
         // with carry bit
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.p[Flag::Carry] = true;
         cpu.a = 0x15;
         x = 0x12;
@@ -2565,8 +2549,8 @@ mod tests {
         assert_eq!(cpu, expected, "with carry bit");
 
         // unsigned underflow
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 0x5;
         x = 0xfe;
         expected.a = cpu.a.wrapping_sub(x + 1);
@@ -2574,8 +2558,8 @@ mod tests {
         assert_eq!(cpu, expected, "unsigned underflow");
 
         // signed underflow
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.p[Flag::Carry] = true;
         cpu.a = 127;
         x = 0xff;
@@ -2586,8 +2570,8 @@ mod tests {
         assert_eq!(cpu, expected, "signed underflow");
 
         // negative result
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 10u8.wrapping_neg();
         cpu.p[Flag::Carry] = true;
         x = 5;
@@ -2598,8 +2582,8 @@ mod tests {
         assert_eq!(cpu, expected, "negative result");
 
         // zero result
-        cpu = Cpu::new(TestBus::new());
-        expected = Cpu::new(TestBus::new());
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
         cpu.a = 10;
         cpu.p[Flag::Carry] = true;
         x = 10;
@@ -2612,8 +2596,8 @@ mod tests {
 
     #[test]
     fn op_sec() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         cpu.execute(Op::SEC);
         expected.p[Flag::Carry] = true;
         assert_eq!(cpu, expected);
@@ -2621,8 +2605,8 @@ mod tests {
 
     #[test]
     fn op_sed() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         cpu.execute(Op::SED);
         expected.p[Flag::Decimal] = true;
         assert_eq!(cpu, expected);
@@ -2630,8 +2614,8 @@ mod tests {
 
     #[test]
     fn op_sei() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         cpu.execute(Op::SEI);
         expected.p[Flag::InterruptDisable] = true;
         assert_eq!(cpu, expected);
@@ -2639,13 +2623,13 @@ mod tests {
 
     #[test]
     fn op_sta() {
-        let mut cpu = Cpu::new(TestBus::new());
-        let mut expected = Cpu::new(TestBus::new());
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
         let addr = 2u16;
         cpu.a = 0x55;
         expected.a = cpu.a;
-        expected.bus.memory = [0, 0, cpu.a, 0];
+        expected.map.memory = [0, 0, cpu.a, 0];
         cpu.execute(Op::STA(Address::Memory(addr)));
-        assert_eq!(cpu.bus.memory, expected.bus.memory);
+        assert_eq!(cpu.map.memory, expected.map.memory);
     }
 }
