@@ -109,6 +109,7 @@ enum Op {
     ROR(Address),
     RTI,
     RTS,
+    SBC(u8),
 }
 
 enum Flag {
@@ -417,6 +418,17 @@ impl<T: Bus> Cpu<T> {
             }
             Op::RTS => {
                 self.pc = u16::from_be_bytes([self.stack_pop(), self.stack_pop()]);
+            }
+            Op::SBC(x) => {
+                let borrow = !self.p[Flag::Carry];
+                let (unsigned_result, has_borrowed) = self.a.borrowing_sub(x, borrow);
+                let (signed_result, has_underflowed) =
+                    (self.a as i8).borrowing_sub(x as i8, borrow);
+                self.a = unsigned_result;
+                self.p[Flag::Negative] = signed_result < 0;
+                self.p[Flag::Overflow] = has_underflowed;
+                self.p[Flag::Zero] = unsigned_result == 0;
+                self.p[Flag::Carry] = !has_borrowed;
             }
         }
     }
@@ -2505,5 +2517,76 @@ mod tests {
         cpu.execute(Op::RTS);
         expected.pc = 0x1234;
         assert_eq!(cpu, expected, "state");
+    }
+
+    #[test]
+    fn op_sbc() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let mut expected = Cpu::new(TestBus::new());
+        let mut x;
+
+        // no carry bit
+        x = 0x8;
+        cpu.a = 0x23;
+        expected.a = cpu.a - x - 1;
+        expected.p[Flag::Carry] = true;
+        cpu.execute(Op::SBC(x));
+        assert_eq!(cpu, expected, "no carry bit");
+
+        // with carry bit
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
+        cpu.p[Flag::Carry] = true;
+        cpu.a = 0x15;
+        x = 0x12;
+        expected.a = cpu.a - x;
+        expected.p[Flag::Carry] = true;
+        cpu.execute(Op::SBC(x));
+        assert_eq!(cpu, expected, "with carry bit");
+
+        // unsigned underflow
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
+        cpu.a = 0x5;
+        x = 0xfe;
+        expected.a = cpu.a.wrapping_sub(x + 1);
+        cpu.execute(Op::SBC(x));
+        assert_eq!(cpu, expected, "unsigned underflow");
+
+        // signed underflow
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
+        cpu.p[Flag::Carry] = true;
+        cpu.a = 127;
+        x = 0xff;
+        expected.a = cpu.a.wrapping_sub(x);
+        expected.p[Flag::Overflow] = true;
+        expected.p[Flag::Negative] = true;
+        cpu.execute(Op::SBC(x));
+        assert_eq!(cpu, expected, "signed underflow");
+
+        // negative result
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
+        cpu.a = 10u8.wrapping_neg();
+        cpu.p[Flag::Carry] = true;
+        x = 5;
+        expected.a = cpu.a - x;
+        expected.p[Flag::Negative] = true;
+        expected.p[Flag::Carry] = true;
+        cpu.execute(Op::SBC(x));
+        assert_eq!(cpu, expected, "negative result");
+
+        // zero result
+        cpu = Cpu::new(TestBus::new());
+        expected = Cpu::new(TestBus::new());
+        cpu.a = 10;
+        cpu.p[Flag::Carry] = true;
+        x = 10;
+        expected.a = 0;
+        expected.p[Flag::Zero] = true;
+        expected.p[Flag::Carry] = true;
+        cpu.execute(Op::SBC(x));
+        assert_eq!(cpu, expected, "zero result");
     }
 }
