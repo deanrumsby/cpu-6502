@@ -114,6 +114,7 @@ enum Op {
     SED,
     SEI,
     STA(Address),
+    STX(Address),
 }
 
 enum Flag {
@@ -413,6 +414,9 @@ impl<T: MemoryMap> Cpu<T> {
             }
             Op::STA(addr) => {
                 self[addr] = self.a;
+            }
+            Op::STX(addr) => {
+                self[addr] = self.x;
             }
         }
     }
@@ -2630,6 +2634,18 @@ mod tests {
         expected.a = cpu.a;
         expected.map.memory = [0, 0, cpu.a, 0];
         cpu.execute(Op::STA(Address::Memory(addr)));
+        assert_eq!(cpu.map.memory, expected.map.memory);
+    }
+
+    #[test]
+    fn op_stx() {
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
+        let addr = 1u16;
+        cpu.x = 0xf2;
+        expected.x = cpu.x;
+        expected.map.memory = [0, cpu.x, 0, 0];
+        cpu.execute(Op::STX(Address::Memory(addr)));
         assert_eq!(cpu.map.memory, expected.map.memory);
     }
 }
