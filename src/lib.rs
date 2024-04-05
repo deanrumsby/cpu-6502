@@ -110,6 +110,7 @@ enum Op {
     RTS,
     SBC(u8),
     SEC,
+    SED,
 }
 
 enum Flag {
@@ -432,6 +433,9 @@ impl<T: Bus> Cpu<T> {
             }
             Op::SEC => {
                 self.p[Flag::Carry] = true;
+            }
+            Op::SED => {
+                self.p[Flag::Decimal] = true;
             }
         }
     }
@@ -2599,6 +2603,15 @@ mod tests {
         let mut expected = Cpu::new(TestBus::new());
         cpu.execute(Op::SEC);
         expected.p[Flag::Carry] = true;
+        assert_eq!(cpu, expected);
+    }
+
+    #[test]
+    fn op_sed() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let mut expected = Cpu::new(TestBus::new());
+        cpu.execute(Op::SED);
+        expected.p[Flag::Decimal] = true;
         assert_eq!(cpu, expected);
     }
 }
