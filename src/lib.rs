@@ -118,6 +118,7 @@ enum Op {
     STY(Address),
     TAX,
     TAY,
+    TSX,
 }
 
 enum Flag {
@@ -433,6 +434,11 @@ impl<T: MemoryMap> Cpu<T> {
                 self.y = self.a;
                 self.p[Flag::Zero] = self.y == 0;
                 self.p[Flag::Negative] = (self.y as i8) < 0;
+            }
+            Op::TSX => {
+                self.x = self.s;
+                self.p[Flag::Zero] = self.x == 0;
+                self.p[Flag::Negative] = (self.x as i8) < 0;
             }
         }
     }
@@ -2741,6 +2747,41 @@ mod tests {
         cpu.execute(Op::TAY);
         expected.a = cpu.a;
         expected.y = cpu.a;
+        expected.p[Flag::Negative] = true;
+        assert_eq!(cpu, expected, "negative");
+    }
+
+    #[test]
+    fn op_tsx() {
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
+
+        // typical
+        cpu.s = 0xf2;
+        cpu.execute(Op::TSX);
+        expected.s = cpu.s;
+        expected.x = cpu.s;
+        expected.p[Flag::Negative] = true;
+        assert_eq!(cpu, expected, "typical");
+
+        // zero
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
+        cpu.s = 0;
+        cpu.x = 0x89;
+        cpu.execute(Op::TSX);
+        expected.s = cpu.s;
+        expected.x = cpu.s;
+        expected.p[Flag::Zero] = true;
+        assert_eq!(cpu, expected, "zero");
+
+        // negative
+        cpu = Cpu::new(TestMap::new());
+        expected = Cpu::new(TestMap::new());
+        cpu.s = 0xd4;
+        cpu.execute(Op::TSX);
+        expected.s = cpu.s;
+        expected.x = cpu.s;
         expected.p[Flag::Negative] = true;
         assert_eq!(cpu, expected, "negative");
     }
