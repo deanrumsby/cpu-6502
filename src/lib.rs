@@ -111,6 +111,7 @@ enum Op {
     SBC(u8),
     SEC,
     SED,
+    SEI,
 }
 
 enum Flag {
@@ -436,6 +437,9 @@ impl<T: Bus> Cpu<T> {
             }
             Op::SED => {
                 self.p[Flag::Decimal] = true;
+            }
+            Op::SEI => {
+                self.p[Flag::InterruptDisable] = true;
             }
         }
     }
@@ -2612,6 +2616,15 @@ mod tests {
         let mut expected = Cpu::new(TestBus::new());
         cpu.execute(Op::SED);
         expected.p[Flag::Decimal] = true;
+        assert_eq!(cpu, expected);
+    }
+
+    #[test]
+    fn op_sei() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let mut expected = Cpu::new(TestBus::new());
+        cpu.execute(Op::SEI);
+        expected.p[Flag::InterruptDisable] = true;
         assert_eq!(cpu, expected);
     }
 }
