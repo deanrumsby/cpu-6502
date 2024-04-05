@@ -112,6 +112,7 @@ enum Op {
     SEC,
     SED,
     SEI,
+    STA(Address),
 }
 
 enum Flag {
@@ -440,6 +441,14 @@ impl<T: Bus> Cpu<T> {
             }
             Op::SEI => {
                 self.p[Flag::InterruptDisable] = true;
+            }
+            Op::STA(addr) => {
+                match addr {
+                    Address::Accumulator => {}
+                    Address::Memory(a) => {
+                        self.bus.write(a, self.a);
+                    }
+                };
             }
         }
     }
@@ -2626,5 +2635,17 @@ mod tests {
         cpu.execute(Op::SEI);
         expected.p[Flag::InterruptDisable] = true;
         assert_eq!(cpu, expected);
+    }
+
+    #[test]
+    fn op_sta() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let mut expected = Cpu::new(TestBus::new());
+        let addr = 2u16;
+        cpu.a = 0x55;
+        expected.a = cpu.a;
+        expected.bus.memory = [0, 0, cpu.a, 0];
+        cpu.execute(Op::STA(Address::Memory(addr)));
+        assert_eq!(cpu.bus.memory, expected.bus.memory);
     }
 }
