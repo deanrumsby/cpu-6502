@@ -1,6 +1,5 @@
 #![feature(bigint_helper_methods)]
 
-use std::convert::From;
 use std::fmt;
 use std::ops::{Index, IndexMut};
 
@@ -110,6 +109,7 @@ enum Op {
     RTI,
     RTS,
     SBC(u8),
+    SEC,
 }
 
 enum Flag {
@@ -429,6 +429,9 @@ impl<T: Bus> Cpu<T> {
                 self.p[Flag::Overflow] = has_underflowed;
                 self.p[Flag::Zero] = unsigned_result == 0;
                 self.p[Flag::Carry] = !has_borrowed;
+            }
+            Op::SEC => {
+                self.p[Flag::Carry] = true;
             }
         }
     }
@@ -2588,5 +2591,14 @@ mod tests {
         expected.p[Flag::Carry] = true;
         cpu.execute(Op::SBC(x));
         assert_eq!(cpu, expected, "zero result");
+    }
+
+    #[test]
+    fn op_sec() {
+        let mut cpu = Cpu::new(TestBus::new());
+        let mut expected = Cpu::new(TestBus::new());
+        cpu.execute(Op::SEC);
+        expected.p[Flag::Carry] = true;
+        assert_eq!(cpu, expected);
     }
 }
