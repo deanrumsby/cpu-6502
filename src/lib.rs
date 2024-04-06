@@ -119,6 +119,7 @@ enum Op {
     TAX,
     TAY,
     TSX,
+    TXS,
 }
 
 enum Flag {
@@ -439,6 +440,9 @@ impl<T: MemoryMap> Cpu<T> {
                 self.x = self.s;
                 self.p[Flag::Zero] = self.x == 0;
                 self.p[Flag::Negative] = (self.x as i8) < 0;
+            }
+            Op::TXS => {
+                self.s = self.x;
             }
         }
     }
@@ -2784,5 +2788,18 @@ mod tests {
         expected.x = cpu.s;
         expected.p[Flag::Negative] = true;
         assert_eq!(cpu, expected, "negative");
+    }
+
+    #[test]
+    fn op_txs() {
+        let mut cpu = Cpu::new(TestMap::new());
+        let mut expected = Cpu::new(TestMap::new());
+
+        cpu.s = 0x43;
+        cpu.x = 0xe3;
+        expected.s = cpu.x;
+        expected.x = cpu.x;
+        cpu.execute(Op::TXS);
+        assert_eq!(cpu, expected);
     }
 }
